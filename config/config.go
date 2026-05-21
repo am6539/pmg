@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"time"
 
 	_ "embed"
@@ -202,6 +201,7 @@ type RuntimeConfig struct {
 	configDir                string
 	configFilePath           string // active config: globally managed file if present, else per-user
 	userConfigFilePath       string // per-user config file, used for writes and removal
+	configLocked             bool   // global file present and opted into lockdown (global_lockdown: true)
 	eventLogDir              string
 	sandboxProfileDir        string
 	sandboxViolationCacheDir string
@@ -243,6 +243,15 @@ func (r *RuntimeConfig) UserConfigFilePath() string {
 // file was chosen.
 func (r *RuntimeConfig) IsManaged() bool {
 	return r.configFilePath != r.userConfigFilePath
+}
+
+// IsLocked reports whether a globally managed config opted into lockdown via
+// global_lockdown: true. When locked, env and CLI overrides of config are
+// refused. An unlocked managed config is an overridable baseline: it stays the
+// authoritative file (the per-user file is still ignored), but env and CLI args
+// can override its values at runtime.
+func (r *RuntimeConfig) IsLocked() bool {
+	return r.configLocked
 }
 
 // EventLogDir returns the path to the event log directory.
@@ -296,12 +305,7 @@ type SandboxAllowOverride struct {
 // The config package return an appropriate RuntimeConfig based on the environment and the configuration.
 func DefaultConfig() RuntimeConfig {
 	// Backward compatibility for the insecure installation flag before config was introduced.
-	insecureInstallation := false
-	if val := os.Getenv(pmgInsecureInstallationEnvKey); val != "" {
-		if boolVal, err := strconv.ParseBool(val); err == nil {
-			insecureInstallation = boolVal
-		}
-	}
+	insecureInstallation := utils.EnvBool(pmgInsecureInstallationEnvKey, false)
 
 	return RuntimeConfig{
 		Config: Config{
@@ -400,6 +404,17 @@ func initConfig() {
 	globalConfig.eventLogDir = eventLogDir
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
+
+	// A globally managed config enforces lockdown only when it opts in via
+	// global_lockdown, read straight from the file so it cannot be flipped by
+	// env or CLI.
+	globalConfig.configLocked = globalConfig.IsManaged() && globalConfigEnablesLockdown(globalConfigFilePath())
+
+	// When locked, env cannot bypass the config, including the
+	// PMG_INSECURE_INSTALLATION malicious-package block bypass.
+	if globalConfig.IsLocked() {
+		globalConfig.InsecureInstallation = false
+	}
 
 	loadConfig()
 
@@ -655,10 +670,15 @@ func RemoveUserConfigFile() error {
 // globally managed configuration. It carries a useful error code and help text
 // so the CLI presents it as an expected, actionable failure rather than a bug.
 func NewManagedConfigError() error {
-	msg := fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath)
+	return managedError(fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath))
+}
+
+// managedError builds the standard "globally managed" CLI error with a useful
+// code and actionable help.
+func managedError(message string) error {
 	return usefulerror.Useful().
 		WithCode(usefulerror.ErrCodePermissionDenied).
-		WithHumanError(msg).
+		WithHumanError(message).
 		WithHelp("This machine's PMG configuration is centrally managed. Contact your administrator to change it.").
-		Wrap(errors.New(msg))
+		Wrap(errors.New(message))
 }
