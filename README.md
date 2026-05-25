@@ -15,7 +15,6 @@
 
 <div align="center">
 
-[![Upstream Docs](https://img.shields.io/badge/Upstream%20Docs-docs.safedep.io-2b9246?style=flat-square)](https://docs.safedep.io/pmg/quickstart)
 ![License](https://img.shields.io/github/license/am6539/pmg)
 ![Release](https://img.shields.io/github/v/release/am6539/pmg)
 [![CodeQL](https://github.com/am6539/pmg/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/am6539/pmg/actions/workflows/codeql.yml)
@@ -26,12 +25,7 @@
 
 Developers and AI coding agents install packages every day. Each `npm install` or `pip install` executes thousands of lines of code that nobody reviews.
 
-Recent compromises in popular ecosystems:
-
-- [**Mini Shai-Hulud**](https://safedep.io/mini-shai-hulud-strikes-again-314-npm-packages-compromised/) - 300+ popular packages compromised
-- [**litellm 1.82.8**](https://safedep.io/malicious-litellm-1-82-8-analysis/) - a popular AI proxy library compromised to exfiltrate credentials
-- [**telnyx 4.87.2**](https://safedep.io/malicious-telnyx-pypi-compromise/) - a legitimate telecom SDK hijacked on PyPI
-- [**pino-sdk-v2**](https://safedep.io/malicious-npm-package-pino-sdk-v2-env-exfiltration/) - a typosquat package disguised as the popular pino logger
+Recent compromises in popular ecosystems include hijacked popular packages, dependency confusion, typosquats, and packages that exfiltrate developer credentials.
 
 PMG intercepts every package install and checks it for malware **before** code executes. Install it once, and PMG covers every `npm install`, `pip install`, and `poetry add` after that.
 
@@ -42,7 +36,7 @@ PMG intercepts every package install and checks it for malware **before** code e
 PMG takes a defense in depth approach. Each install passes through the enabled protection layers before code runs, plus an audit trail after.
 
 - **Transparent Interception** - PMG wraps `npm`, `pip`, and other package managers. Developers and AI agents use the same commands. No workflow changes.
-- **Layer 1: Threat Intelligence** - PMG checks every package against [SafeDep's real-time threat intelligence](https://safedep.io) before install. Known-malicious packages never reach disk.
+- **Layer 1: Threat Intelligence** - PMG checks packages before install so known-malicious packages never reach disk.
 - **Layer 2: Policy (Dependency Cooldown)** - PMG blocks package versions published inside a configurable cooldown window, so freshly compromised versions cannot land before the ecosystem has had time to flag them.
 - **Layer 3: Optional Sandbox** - When sandboxing is enabled and configured, PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Landlock by default, or Bubblewrap fallback) so install scripts have restricted system access even if a threat slips past the first two layers.
 - **Audit Logging** - PMG logs every install (what, when, from where) for a verifiable audit trail.
@@ -78,25 +72,13 @@ npm install express
 pip install requests
 ```
 
-Verify PMG works by installing `safedep-test-pkg`. It's harmless, but SafeDep flags it as malicious so you can confirm the block path:
+Verify PMG works by running a normal package manager command after setup:
 
 ```bash
-npm --prefer-online --no-cache i safedep-test-pkg@0.1.3
+npm install express
 ```
 
-<details>
-<summary>Expected output</summary>
-
-```
-✗ Malicious package blocked
-
-  - safedep-test-pkg@0.1.3
-    Reference: https://app.safedep.io/community/malysis/01KF5JYDND9XR94WNEJ2G74KY2
-
-✗ PMG: 1 packages analyzed, 1 blocked
-```
-
-</details>
+PMG should appear in the command output and log the analyzed packages.
 
 ## Features
 
@@ -133,31 +115,6 @@ Downloads the latest release from GitHub, verifies its SHA-256 checksum, and ins
 ```bash
 curl -fsSL https://raw.githubusercontent.com/am6539/pmg/main/install.sh | sh
 ```
-
-</details>
-
-<details>
-<summary><strong>Homebrew (upstream SafeDep build)</strong></summary>
-
-This installs the upstream SafeDep package, not this fork. Use the install script above for the custom `am6539/pmg` build.
-
-```bash
-brew tap safedep/tap
-brew install safedep/tap/pmg
-```
-
-</details>
-
-<details>
-<summary><strong>NPM (upstream SafeDep build)</strong></summary>
-
-This installs the upstream SafeDep package, not this fork. Use the install script above for the custom `am6539/pmg` build.
-
-```bash
-npm install -g @safedep/pmg
-```
-
-> **Note:** NPM-based installs can be fragile when Node.js is managed by version managers like [`mise`](https://mise.jdx.dev/) or [`asdf`](https://asdf-vm.com/). The global `npm` bin path changes with the active Node version, so switching versions can leave `pmg` unavailable on `PATH` (or pointing to an old install). For these setups, prefer the install script or Homebrew.
 
 </details>
 
@@ -219,13 +176,6 @@ rm -f ~/.local/bin/pmg
 sudo rm -f /usr/local/bin/pmg
 ```
 
-If you installed an upstream package instead, uninstall it with its original package manager:
-
-```bash
-brew uninstall safedep/tap/pmg
-npm uninstall -g @safedep/pmg
-```
-
 ## Trust and Security
 
 PMG builds are reproducible and signed.
@@ -243,7 +193,7 @@ PMG builds are reproducible and signed.
 
 ## Support
 
-This fork is maintained for the `am6539/pmg` custom build. For upstream documentation and community support, see the SafeDep PMG project.
+This fork is maintained for the `am6539/pmg` custom build.
 
 ## Contributing
 
