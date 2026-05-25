@@ -39,14 +39,4 @@ checksum:
 universal_binaries:
   - replace: true
 
-brews:
-  - name: pmg
-    homepage: https://github.com/safedep/pmg
-    description: "PMG protects developers from malicious packages"
-    license: "Apache-2.0"
-    repository:
-      owner: safedep
-      name: homebrew-tap
-      branch: main
-
 

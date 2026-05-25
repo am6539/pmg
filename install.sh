@@ -2,7 +2,7 @@
 set -eu
 
 do_install() {
-  REPO="safedep/pmg"
+  REPO="am6539/pmg"
   BINARY="pmg"
 
   # Prefer $HOME/.local/bin if it exists and is in PATH.

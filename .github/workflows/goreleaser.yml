@@ -13,7 +13,6 @@ permissions:
 jobs:
   goreleaser:
     timeout-minutes: 60
-    environment: npm-release
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     permissions:
@@ -42,7 +41,7 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload dist Folder
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
