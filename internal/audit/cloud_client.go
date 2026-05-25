@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/cloud/endpointsync"
@@ -83,6 +84,16 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 			}
 		}
 		return nil, fmt.Errorf("failed to resolve cloud credentials: %w", err)
+	}
+
+	// Apply custom cloud address if configured.
+	// SAFEDEP_CLOUD_DATA_ADDR and SAFEDEP_CLOUD_DATA_INSECURE are read by
+	// the dry/cloud library's NewDataPlaneClient.
+	if cfg.Config.Cloud.Addr != "" {
+		os.Setenv("SAFEDEP_CLOUD_DATA_ADDR", cfg.Config.Cloud.Addr)
+	}
+	if cfg.Config.Cloud.Insecure {
+		os.Setenv("SAFEDEP_CLOUD_DATA_INSECURE", "true")
 	}
 
 	cloudClient, err := cloud.NewDataPlaneClient("pmg", creds)

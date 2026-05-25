@@ -164,6 +164,16 @@ dependency_cooldown:
 # Requires SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables for authentication.
 cloud:
   enabled: false
+
+  # Custom gRPC server address (host:port).
+  # Leave empty to use the default SafeDep Cloud endpoint.
+  # Use this when running a self-hosted pmg-cloud backend.
+  addr: ""
+
+  # Set to true when connecting to a self-hosted server without TLS.
+  # Never set this in production environments.
+  insecure: false
+
   # Endpoint ID is not required. By default, it falls back to the machine's hostname.
   # Set it only if you want to explicitly override the identifier for this endpoint.
   endpoint_id: ""

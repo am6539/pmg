@@ -101,6 +101,8 @@ type Config struct {
 // CloudConfig configures audit event sync to SafeDep Cloud.
 type CloudConfig struct {
 	Enabled    bool                `mapstructure:"enabled"`
+	Addr       string              `mapstructure:"addr"`     // custom gRPC endpoint (host:port); defaults to SafeDep Cloud
+	Insecure   bool                `mapstructure:"insecure"` // disable TLS; only for local/private servers
 	EndpointID string              `mapstructure:"endpoint_id"`
 	AutoSync   CloudAutoSyncConfig `mapstructure:"auto_sync"`
 }
