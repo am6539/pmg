@@ -15,15 +15,10 @@
 
 <div align="center">
 
-[![Docs](https://img.shields.io/badge/Docs-docs.safedep.io-2b9246?style=flat-square)](https://docs.safedep.io/pmg/quickstart)
-[![Website](https://img.shields.io/badge/Website-safedep.io-3b82f6?style=flat-square)](https://safedep.io)
-[![Discord](https://img.shields.io/discord/1090352019379851304?style=flat-square)](https://discord.gg/kAGEj25dCn)
-
-[![Go Report Card](https://goreportcard.com/badge/github.com/safedep/pmg)](https://goreportcard.com/report/github.com/safedep/pmg)
-![License](https://img.shields.io/github/license/safedep/pmg)
-![Release](https://img.shields.io/github/v/release/safedep/pmg)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/safedep/pmg/badge)](https://api.securityscorecards.dev/projects/github.com/safedep/pmg)
-[![CodeQL](https://github.com/safedep/pmg/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/safedep/pmg/actions/workflows/codeql.yml)
+[![Upstream Docs](https://img.shields.io/badge/Upstream%20Docs-docs.safedep.io-2b9246?style=flat-square)](https://docs.safedep.io/pmg/quickstart)
+![License](https://img.shields.io/github/license/am6539/pmg)
+![Release](https://img.shields.io/github/v/release/am6539/pmg)
+[![CodeQL](https://github.com/am6539/pmg/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/am6539/pmg/actions/workflows/codeql.yml)
 
 </div>
 
@@ -57,10 +52,10 @@ PMG takes a defense in depth approach. Each install passes through the enabled p
 ### 1. Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/safedep/pmg/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/am6539/pmg/main/install.sh | sh
 ```
 
-> See [Installation](#installation) for Homebrew, npm, and other install methods.
+> This fork publishes binaries from `am6539/pmg` releases. Homebrew and npm package installs still refer to upstream SafeDep builds and are not recommended for this fork.
 
 ### 2. Setup
 
@@ -136,13 +131,15 @@ PMG supports the tools you already use:
 Downloads the latest release from GitHub, verifies its SHA-256 checksum, and installs to `$HOME/.local/bin` (if on `PATH`) or `/usr/local/bin`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/safedep/pmg/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/am6539/pmg/main/install.sh | sh
 ```
 
 </details>
 
 <details>
-<summary><strong>Homebrew (MacOS/Linux)</strong></summary>
+<summary><strong>Homebrew (upstream SafeDep build)</strong></summary>
+
+This installs the upstream SafeDep package, not this fork. Use the install script above for the custom `am6539/pmg` build.
 
 ```bash
 brew tap safedep/tap
@@ -152,7 +149,9 @@ brew install safedep/tap/pmg
 </details>
 
 <details>
-<summary><strong>NPM (Cross-Platform)</strong></summary>
+<summary><strong>NPM (upstream SafeDep build)</strong></summary>
+
+This installs the upstream SafeDep package, not this fork. Use the install script above for the custom `am6539/pmg` build.
 
 ```bash
 npm install -g @safedep/pmg
@@ -167,7 +166,7 @@ npm install -g @safedep/pmg
 
 ```bash
 # Ensure $(go env GOPATH)/bin is in your $PATH
-go install github.com/safedep/pmg@latest
+go install github.com/am6539/pmg@main
 ```
 
 </details>
@@ -175,7 +174,7 @@ go install github.com/safedep/pmg@latest
 <details>
 <summary><strong>Binary Download</strong></summary>
 
-Download the latest binary for your platform from the [Releases Page](https://github.com/safedep/pmg/releases).
+Download the latest binary for your platform from the [am6539/pmg Releases Page](https://github.com/am6539/pmg/releases).
 </details>
 
 ## GitHub Actions
@@ -188,7 +187,7 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 - uses: actions/setup-node@v6
   with:
     node-version: 24
-- uses: safedep/pmg@v1
+- uses: am6539/pmg@v1
 - run: npm ci
 ```
 
@@ -212,13 +211,18 @@ To also remove the PMG configuration file:
 pmg setup remove --config-file
 ```
 
-Then uninstall PMG itself:
+Then remove the installed binary if you used the install script:
 
 ```bash
-# Homebrew
-brew uninstall safedep/tap/pmg
+rm -f ~/.local/bin/pmg
+# or, if it was installed globally:
+sudo rm -f /usr/local/bin/pmg
+```
 
-# NPM
+If you installed an upstream package instead, uninstall it with its original package manager:
+
+```bash
+brew uninstall safedep/tap/pmg
 npm uninstall -g @safedep/pmg
 ```
 
@@ -239,7 +243,7 @@ PMG builds are reproducible and signed.
 
 ## Support
 
-If PMG saved you from a bad package, [star this repo](https://github.com/safedep/pmg). It helps others find it.
+This fork is maintained for the `am6539/pmg` custom build. For upstream documentation and community support, see the SafeDep PMG project.
 
 ## Contributing
 
