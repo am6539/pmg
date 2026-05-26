@@ -87,13 +87,13 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 	}
 
 	// Apply custom cloud address if configured.
-	// SAFEDEP_CLOUD_DATA_ADDR and SAFEDEP_CLOUD_DATA_INSECURE are read by
-	// the dry/cloud library's NewDataPlaneClient.
+	// SAFEDEP_CLOUD_DATA_ADDR is read by dry/cloud's NewDataPlaneClient.
+	// INSECURE_GRPC_CLIENT_USE_INSECURE_TRANSPORT is read by dry/adapters/grpc.
 	if cfg.Config.Cloud.Addr != "" {
 		os.Setenv("SAFEDEP_CLOUD_DATA_ADDR", cfg.Config.Cloud.Addr)
 	}
 	if cfg.Config.Cloud.Insecure {
-		os.Setenv("SAFEDEP_CLOUD_DATA_INSECURE", "true")
+		os.Setenv("INSECURE_GRPC_CLIENT_USE_INSECURE_TRANSPORT", "true")
 	}
 
 	cloudClient, err := cloud.NewDataPlaneClient("pmg", creds)
