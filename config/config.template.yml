@@ -197,3 +197,19 @@ cloud:
 
     # Hard timeout applied to a single background sync attempt.
     timeout: 5m
+
+# Aikido Intel — free community malware feed, no API key required.
+# Runs alongside SafeDep; installs are blocked if either source flags a package.
+aikido_intel:
+  enabled: true
+
+  # Leave empty / use the default to pull from Aikido's public feed.
+  # Point to your pmg-cloud URL for air-gapped / self-hosted mode:
+  #   base_url: "http://your-pmg-cloud:8080"
+  base_url: "https://malware-list.aikido.dev"
+
+  # How long to keep the feed cached on disk before re-fetching.
+  cache_ttl: 1h
+
+  # HTTP timeout for fetching the feed.
+  request_timeout: 10s

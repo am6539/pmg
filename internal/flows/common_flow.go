@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
@@ -65,6 +66,20 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	}
 
 	analyzers = append(analyzers, malysisQueryAnalyzer)
+
+	if cfg.Config.AikidoIntel.Enabled {
+		aikidoAnalyzer, err := analyzer.NewAikidoIntelAnalyzer(analyzer.AikidoIntelAnalyzerConfig{
+			BaseURL:     cfg.Config.AikidoIntel.BaseURL,
+			CacheDir:    cfg.AikidoCacheDir(),
+			CacheTTL:    cfg.Config.AikidoIntel.CacheTTL,
+			HTTPTimeout: cfg.Config.AikidoIntel.RequestTimeout,
+		})
+		if err != nil {
+			log.Warnf("aikido-intel: failed to create analyzer, skipping: %v", err)
+		} else {
+			analyzers = append(analyzers, aikidoAnalyzer)
+		}
+	}
 
 	interaction := guard.PackageManagerGuardInteraction{
 		SetStatus:                ui.SetStatus,
