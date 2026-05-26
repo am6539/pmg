@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/safedep/dry/log"
 )
 
@@ -27,8 +29,14 @@ type aikidoEntry struct {
 	Reason      string `json:"reason"`
 }
 
+type aikidoRangeEntry struct {
+	entry      aikidoEntry
+	constraint *semver.Constraints
+}
+
 type aikidoSnapshot struct {
-	entries   map[string]aikidoEntry // key: "name:version"
+	exact     map[string]aikidoEntry        // key: "name:version" — O(1) exact lookup
+	ranges    map[string][]aikidoRangeEntry // key: package name — semver range / wildcard entries
 	fetchedAt time.Time
 }
 
@@ -76,20 +84,23 @@ func (a *aikidoIntelAnalyzer) Analyze(ctx context.Context, pv *packagev1.Package
 	}
 
 	key := pv.GetPackage().GetName() + ":" + pv.GetVersion()
-	entry, ok := snap.entries[key]
-	if !ok {
-		return allow, nil
+	if entry, ok := snap.exact[key]; ok {
+		return aikidoBlockResult(pv, entry, ecoName), nil
 	}
 
-	return &PackageVersionAnalysisResult{
-		PackageVersion: pv,
-		Action:         ActionBlock,
-		IsMalware:      true,
-		IsVerified:     true,
-		Summary:        entry.Reason,
-		AnalysisID:     fmt.Sprintf("aikido:%s:%s@%s", ecoName, pv.GetPackage().GetName(), pv.GetVersion()),
-		ReferenceURL:   fmt.Sprintf("https://aikido.dev/malware/%s/%s", pv.GetPackage().GetName(), pv.GetVersion()),
-	}, nil
+	// Check semver range / wildcard entries for this package name.
+	if rangeEntries, ok := snap.ranges[pv.GetPackage().GetName()]; ok {
+		sv, err := semver.NewVersion(pv.GetVersion())
+		if err == nil {
+			for _, re := range rangeEntries {
+				if re.constraint.Check(sv) {
+					return aikidoBlockResult(pv, re.entry, ecoName), nil
+				}
+			}
+		}
+	}
+
+	return allow, nil
 }
 
 func (a *aikidoIntelAnalyzer) resolveEcosystem(pv *packagev1.PackageVersion) (*aikidoEcosystem, string, string) {
@@ -144,12 +155,23 @@ func (a *aikidoIntelAnalyzer) loadSnapshot(ctx context.Context, feedPath, ecoNam
 		}
 	}
 
-	m := make(map[string]aikidoEntry, len(entries))
+	exact := make(map[string]aikidoEntry, len(entries))
+	ranges := make(map[string][]aikidoRangeEntry)
+
 	for _, e := range entries {
-		m[e.PackageName+":"+e.Version] = e
+		if isExactAikidoVersion(e.Version) {
+			exact[e.PackageName+":"+e.Version] = e
+			continue
+		}
+		c, err := semver.NewConstraint(e.Version)
+		if err != nil {
+			log.Warnf("aikido-intel: skipping unparseable version range %q for %s: %v", e.Version, e.PackageName, err)
+			continue
+		}
+		ranges[e.PackageName] = append(ranges[e.PackageName], aikidoRangeEntry{entry: e, constraint: c})
 	}
 
-	return &aikidoSnapshot{entries: m, fetchedAt: time.Now()}
+	return &aikidoSnapshot{exact: exact, ranges: ranges, fetchedAt: time.Now()}
 }
 
 func (a *aikidoIntelAnalyzer) fetchFeed(ctx context.Context, feedPath string) ([]aikidoEntry, error) {
@@ -201,4 +223,22 @@ func (a *aikidoIntelAnalyzer) readDiskCache(ecoName string) ([]aikidoEntry, erro
 		return nil, err
 	}
 	return entries, nil
+}
+
+// isExactAikidoVersion returns true when v is a plain version string with no range operators.
+// Strings containing >, <, =, ^, ~, *, |, or whitespace are treated as semver constraints.
+func isExactAikidoVersion(v string) bool {
+	return !strings.ContainsAny(v, "><^~*| \t") && !strings.Contains(v, "=")
+}
+
+func aikidoBlockResult(pv *packagev1.PackageVersion, entry aikidoEntry, ecoName string) *PackageVersionAnalysisResult {
+	return &PackageVersionAnalysisResult{
+		PackageVersion: pv,
+		Action:         ActionBlock,
+		IsMalware:      true,
+		IsVerified:     true,
+		Summary:        entry.Reason,
+		AnalysisID:     fmt.Sprintf("aikido:%s:%s@%s", ecoName, pv.GetPackage().GetName(), pv.GetVersion()),
+		ReferenceURL:   fmt.Sprintf("https://aikido.dev/malware/%s/%s", pv.GetPackage().GetName(), pv.GetVersion()),
+	}
 }

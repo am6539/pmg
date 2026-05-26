@@ -338,10 +338,32 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 	return certMgr, nil
 }
 
-// createAnalyzer creates the malysis query analyzer
+// createAnalyzer creates the analyzer(s) for package security analysis.
+// When Aikido Intel is enabled, it returns a composite that runs both analyzers in parallel.
 func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 	log.Debugf("Creating malysis query analyzer")
-	return analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	malysis, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := config.Get()
+	if !cfg.Config.AikidoIntel.Enabled {
+		return malysis, nil
+	}
+
+	aikido, err := analyzer.NewAikidoIntelAnalyzer(analyzer.AikidoIntelAnalyzerConfig{
+		BaseURL:     cfg.Config.AikidoIntel.BaseURL,
+		CacheDir:    cfg.AikidoCacheDir(),
+		CacheTTL:    cfg.Config.AikidoIntel.CacheTTL,
+		HTTPTimeout: cfg.Config.AikidoIntel.RequestTimeout,
+	})
+	if err != nil {
+		log.Warnf("aikido-intel: failed to create analyzer, skipping: %v", err)
+		return malysis, nil
+	}
+
+	return analyzer.NewCompositeAnalyzer(malysis, aikido), nil
 }
 
 // createAndStartProxyServer creates and starts the proxy server with the given interceptor

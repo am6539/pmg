@@ -280,6 +280,40 @@ func TestAikidoIntel_AnalysisIDFormat(t *testing.T) {
 	assert.Contains(t, result.ReferenceURL, "evil-pkg")
 }
 
+func TestAikidoIntel_WildcardVersionBlocks(t *testing.T) {
+	srv, _ := serveFeed(t, []feedEntry{
+		{PackageName: "evil-pkg", Version: "*", Reason: "MALWARE"},
+	}, nil)
+	an := makeAikidoAnalyzer(t, srv.URL)
+
+	result, err := an.Analyze(context.Background(), npmPkg("evil-pkg", "9.9.9"))
+	require.NoError(t, err)
+	assert.Equal(t, ActionBlock, result.Action)
+	assert.True(t, result.IsMalware)
+}
+
+func TestAikidoIntel_SemverRangeBlocks(t *testing.T) {
+	srv, _ := serveFeed(t, []feedEntry{
+		{PackageName: "evil-pkg", Version: ">=1.0.0 <3.0.0", Reason: "MALWARE"},
+	}, nil)
+	an := makeAikidoAnalyzer(t, srv.URL)
+
+	result, err := an.Analyze(context.Background(), npmPkg("evil-pkg", "2.5.0"))
+	require.NoError(t, err)
+	assert.Equal(t, ActionBlock, result.Action)
+}
+
+func TestAikidoIntel_SemverRangeDoesNotMatchOutside(t *testing.T) {
+	srv, _ := serveFeed(t, []feedEntry{
+		{PackageName: "evil-pkg", Version: ">=1.0.0 <2.0.0", Reason: "MALWARE"},
+	}, nil)
+	an := makeAikidoAnalyzer(t, srv.URL)
+
+	result, err := an.Analyze(context.Background(), npmPkg("evil-pkg", "3.0.0"))
+	require.NoError(t, err)
+	assert.Equal(t, ActionAllow, result.Action)
+}
+
 func TestAikidoIntel_DiskCacheWrittenAfterFetch(t *testing.T) {
 	cacheDir := t.TempDir()
 	srv, _ := serveFeed(t, []feedEntry{
