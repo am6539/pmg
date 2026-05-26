@@ -96,6 +96,8 @@ type Config struct {
 	Cloud CloudConfig `mapstructure:"cloud"`
 
 	Proxy ProxyConfig `mapstructure:"proxy"`
+
+	AikidoIntel AikidoIntelConfig `mapstructure:"aikido_intel"`
 }
 
 // CloudConfig configures audit event sync to SafeDep Cloud.
@@ -121,6 +123,15 @@ type ProxyConfig struct {
 	Enabled      bool                `mapstructure:"enabled"`
 	InstallOnly  bool                `mapstructure:"install_only"`
 	SkipCommands map[string][]string `mapstructure:"skip_commands"`
+}
+
+// AikidoIntelConfig configures the Aikido Intel malware feed analyzer.
+// The feed is fetched from BaseURL and cached locally. No API key required.
+type AikidoIntelConfig struct {
+	Enabled        bool          `mapstructure:"enabled"`
+	BaseURL        string        `mapstructure:"base_url"`
+	CacheTTL       time.Duration `mapstructure:"cache_ttl"`
+	RequestTimeout time.Duration `mapstructure:"request_timeout"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -277,6 +288,15 @@ func (r *RuntimeConfig) SandboxViolationCacheDir() string {
 	return r.sandboxViolationCacheDir
 }
 
+// AikidoCacheDir returns the path used to store Aikido Intel feed cache files.
+func (r *RuntimeConfig) AikidoCacheDir() string {
+	dir, err := cacheDir()
+	if err != nil {
+		return filepath.Join(r.configDir, "aikido-cache")
+	}
+	return filepath.Join(dir, "aikido")
+}
+
 func (r *RuntimeConfig) IsProxyModeEnabled() bool {
 	return r.Config.Proxy.Enabled
 }
@@ -342,6 +362,12 @@ func DefaultConfig() RuntimeConfig {
 				Enabled:      true,
 				InstallOnly:  false,
 				SkipCommands: map[string][]string{},
+			},
+			AikidoIntel: AikidoIntelConfig{
+				Enabled:        true,
+				BaseURL:        "https://malware-list.aikido.dev",
+				CacheTTL:       1 * time.Hour,
+				RequestTimeout: 10 * time.Second,
 			},
 		},
 		DryRun:               false,
