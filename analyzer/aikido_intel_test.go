@@ -280,6 +280,57 @@ func TestAikidoIntel_AnalysisIDFormat(t *testing.T) {
 	assert.Contains(t, result.ReferenceURL, "evil-pkg")
 }
 
+func TestAikidoIntel_Refresh_UpdatesSnapshot(t *testing.T) {
+	srv, requestCount := serveFeed(t, []feedEntry{
+		{PackageName: "evil-pkg", Version: "1.0.0", Reason: "MALWARE"},
+	}, nil)
+	an := makeAikidoAnalyzer(t, srv.URL)
+
+	err := an.Refresh(context.Background())
+	require.NoError(t, err)
+
+	// Refresh fetches both npm and pypi feeds → 2 requests
+	assert.Equal(t, int64(2), requestCount.Load())
+
+	result, err := an.Analyze(context.Background(), npmPkg("evil-pkg", "1.0.0"))
+	require.NoError(t, err)
+	assert.Equal(t, ActionBlock, result.Action)
+}
+
+func TestAikidoIntel_Refresh_AllFeedsFail_ReturnsError(t *testing.T) {
+	srv := newTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	an := makeAikidoAnalyzer(t, srv.URL)
+	err := an.Refresh(context.Background())
+	assert.Error(t, err)
+}
+
+func TestAikidoIntel_StaleCache_ServedImmediately(t *testing.T) {
+	srv, _ := serveFeed(t, []feedEntry{
+		{PackageName: "evil-pkg", Version: "1.0.0", Reason: "MALWARE"},
+	}, nil)
+
+	an, err := NewAikidoIntelAnalyzer(AikidoIntelAnalyzerConfig{
+		BaseURL:     srv.URL,
+		CacheDir:    t.TempDir(),
+		CacheTTL:    1 * time.Millisecond,
+		HTTPTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err)
+
+	// Warm the cache
+	_, err = an.Analyze(context.Background(), npmPkg("evil-pkg", "1.0.0"))
+	require.NoError(t, err)
+
+	// TTL expired — stale data served immediately, background refresh fires
+	result, err := an.Analyze(context.Background(), npmPkg("evil-pkg", "1.0.0"))
+	require.NoError(t, err)
+	assert.Equal(t, ActionBlock, result.Action)
+}
+
 func TestAikidoIntel_WildcardVersionBlocks(t *testing.T) {
 	srv, _ := serveFeed(t, []feedEntry{
 		{PackageName: "evil-pkg", Version: "*", Reason: "MALWARE"},

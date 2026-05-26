@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	aikidoCmd "github.com/safedep/pmg/cmd/aikido"
 	"github.com/safedep/pmg/cmd/cloud"
 	configCmd "github.com/safedep/pmg/cmd/config"
 	"github.com/safedep/pmg/cmd/executors"
@@ -152,6 +153,7 @@ func main() {
 	cmd.AddCommand(setup.NewRemoveCommand())
 	cmd.AddCommand(sandboxCmd.NewCommand())
 	cmd.AddCommand(cloud.NewCloudCommand())
+	cmd.AddCommand(aikidoCmd.NewAikidoCommand())
 	cmd.AddCommand(configCmd.NewConfigCommand())
 
 	if subcmd := landlockCmd.NewLandlockSandboxExecCommand(); subcmd != nil {

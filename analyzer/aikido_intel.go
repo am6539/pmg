@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -41,9 +42,10 @@ type aikidoSnapshot struct {
 }
 
 type aikidoEcosystem struct {
-	mu       sync.Mutex
-	once     sync.Once
-	snapshot *aikidoSnapshot
+	mu         sync.Mutex
+	once       sync.Once
+	snapshot   *aikidoSnapshot
+	refreshing atomic.Bool // true while a background refresh goroutine is running
 }
 
 type aikidoIntelAnalyzer struct {
@@ -116,27 +118,43 @@ func (a *aikidoIntelAnalyzer) resolveEcosystem(pv *packagev1.PackageVersion) (*a
 
 func (a *aikidoIntelAnalyzer) getSnapshot(ctx context.Context, eco *aikidoEcosystem, feedPath, ecoName string) *aikidoSnapshot {
 	eco.mu.Lock()
-	if eco.snapshot != nil && time.Since(eco.snapshot.fetchedAt) < a.cfg.CacheTTL {
-		snap := eco.snapshot
-		eco.mu.Unlock()
+	snap := eco.snapshot
+	fresh := snap != nil && time.Since(snap.fetchedAt) < a.cfg.CacheTTL
+	eco.mu.Unlock()
+
+	if fresh {
 		return snap
 	}
-	eco.mu.Unlock()
 
-	// sync.Once prevents concurrent fetch storms on first load.
-	// After TTL expiry we fall through to return the stale snapshot.
-	eco.once.Do(func() {
-		snap := a.loadSnapshot(ctx, feedPath, ecoName)
-		if snap != nil {
-			eco.mu.Lock()
-			eco.snapshot = snap
-			eco.mu.Unlock()
-		}
-	})
+	// No data yet — block on first load to guarantee correctness.
+	if snap == nil {
+		eco.once.Do(func() {
+			loaded := a.loadSnapshot(ctx, feedPath, ecoName)
+			if loaded != nil {
+				eco.mu.Lock()
+				eco.snapshot = loaded
+				eco.mu.Unlock()
+			}
+		})
+		eco.mu.Lock()
+		s := eco.snapshot
+		eco.mu.Unlock()
+		return s
+	}
 
-	eco.mu.Lock()
-	snap := eco.snapshot
-	eco.mu.Unlock()
+	// Stale data exists — serve it immediately and refresh in background so
+	// the caller is never blocked waiting for the network.
+	if eco.refreshing.CompareAndSwap(false, true) {
+		go func() {
+			defer eco.refreshing.Store(false)
+			loaded := a.loadSnapshot(context.Background(), feedPath, ecoName)
+			if loaded != nil {
+				eco.mu.Lock()
+				eco.snapshot = loaded
+				eco.mu.Unlock()
+			}
+		}()
+	}
 	return snap
 }
 
@@ -199,6 +217,40 @@ func (a *aikidoIntelAnalyzer) fetchFeed(ctx context.Context, feedPath string) ([
 	}
 
 	return entries, nil
+}
+
+// Refresh forces an immediate re-fetch of both ecosystem feeds, bypassing the TTL.
+// It is safe to call concurrently; only the first caller per ecosystem fetches — the rest wait.
+// Returns an error only when every feed fails. Partial failures are logged.
+func (a *aikidoIntelAnalyzer) Refresh(ctx context.Context) error {
+	type ecoSpec struct {
+		eco      *aikidoEcosystem
+		feedPath string
+		ecoName  string
+	}
+	specs := []ecoSpec{
+		{a.npm, "/malware_predictions.json", "npm"},
+		{a.pypi, "/malware_pypi.json", "pypi"},
+	}
+
+	var failures int
+	for _, s := range specs {
+		loaded := a.loadSnapshot(ctx, s.feedPath, s.ecoName)
+		if loaded == nil {
+			failures++
+			continue
+		}
+		s.eco.mu.Lock()
+		s.eco.snapshot = loaded
+		s.eco.mu.Unlock()
+		// Mark once as done so getSnapshot's blocking path is never re-entered.
+		s.eco.once.Do(func() {})
+	}
+
+	if failures == len(specs) {
+		return fmt.Errorf("aikido-intel: all feed refreshes failed")
+	}
+	return nil
 }
 
 func (a *aikidoIntelAnalyzer) diskCachePath(ecoName string) string {
