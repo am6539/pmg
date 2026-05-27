@@ -181,20 +181,43 @@ aikido_intel:
 
 [pmg-cloud](https://github.com/am6539/pmg-cloud) is a self-hosted gRPC + HTTP server that receives audit events from PMG agents and serves a web dashboard with per-endpoint, per-repository, and malware feed visibility.
 
-### Enroll with one command
+### Deploy with one command (recommended)
+
+In the pmg-cloud dashboard, go to **Agents → Deploy New Agent**. A 3-step wizard lets you pick OS, architecture, and token settings, then gives you a one-liner to run on the target machine:
 
 ```bash
-# On the target machine — installs PMG and configures it automatically
 curl -sSfL http://your-server:8080/install.sh | sh -s -- --token=pmgenroll_xxx
 ```
 
-Enrollment tokens are generated in the pmg-cloud dashboard under **Agents → Create Enrollment Token**.
+This command installs PMG, enrolls the machine, and wires PMG into the shell automatically. Just restart the terminal after.
 
-### Manual enrollment
+### Interactive enrollment (PMG already installed)
+
+```bash
+pmg cloud enroll
+# Prompts for server address and token interactively
+```
+
+Or pass flags directly (useful in scripts):
 
 ```bash
 pmg cloud enroll --endpoint http://your-server:8080 --token pmgenroll_xxx
 ```
+
+### Air-gapped machines (no direct internet)
+
+For machines that cannot reach SafeDep directly, route malware checks through pmg-cloud:
+
+```yaml
+# ~/.pmg/config.yml
+malysis:
+  addr: "your-server:8443"        # pmg-cloud gRPC address
+  insecure: false                  # true if pmg-cloud has no TLS
+aikido_intel:
+  base_url: "http://your-server:8080"   # pmg-cloud Aikido mirror
+```
+
+pmg-cloud relays SafeDep queries upstream and caches responses — agents need no direct internet access.
 
 ### Manual config
 
@@ -226,6 +249,8 @@ Key environment variables:
 | `PMG_CLOUD_INSECURE` | Disable TLS — dev/self-hosted only |
 | `PMG_CLOUD_ENDPOINT_ID` | Override endpoint identifier |
 | `PMG_CLOUD_AUTO_SYNC_ENABLED` | Background auto-sync toggle |
+| `PMG_MALYSIS_ADDR` | Route SafeDep checks through a pmg-cloud relay (`host:port`) |
+| `PMG_MALYSIS_INSECURE` | Disable TLS for the malysis relay |
 | `PMG_PARANOID` | Treat suspicious packages as malicious |
 | `PMG_DISABLE_TELEMETRY` | Disable anonymous usage telemetry |
 
