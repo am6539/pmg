@@ -170,6 +170,10 @@ cloud:
   # Use this when running a self-hosted pmg-cloud backend.
   addr: ""
 
+  # API key for self-hosted PMG Cloud (set automatically by 'pmg cloud enroll').
+  # Do not set this when using SafeDep Cloud (use 'pmg cloud login' instead).
+  api_key: ""
+
   # Set to true when connecting to a self-hosted server without TLS.
   # Never set this in production environments.
   insecure: false

@@ -16,6 +16,7 @@ import (
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -105,6 +106,7 @@ type CloudConfig struct {
 	Enabled    bool                `mapstructure:"enabled"`
 	Addr       string              `mapstructure:"addr"`     // custom gRPC endpoint (host:port); defaults to SafeDep Cloud
 	Insecure   bool                `mapstructure:"insecure"` // disable TLS; only for local/private servers
+	APIKey     string              `mapstructure:"api_key"`  // API key for self-hosted enrollment (set by 'pmg cloud enroll')
 	EndpointID string              `mapstructure:"endpoint_id"`
 	AutoSync   CloudAutoSyncConfig `mapstructure:"auto_sync"`
 }
@@ -710,4 +712,54 @@ func managedError(message string) error {
 		WithHumanError(message).
 		WithHelp("This machine's PMG configuration is centrally managed. Contact your administrator to change it.").
 		Wrap(errors.New(message))
+}
+
+// PatchCloudConfig writes cloud enrollment settings (api_key, addr, insecure, enabled=true)
+// to the user config file. Reads existing config if present; only overwrites cloud fields.
+func PatchCloudConfig(apiKey, grpcAddr string, insecure bool) error {
+	if err := WriteTemplateConfig(); err != nil {
+		return fmt.Errorf("failed to ensure config file exists: %w", err)
+	}
+
+	configPath, err := userConfigFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if root == nil {
+		root = make(map[string]interface{})
+	}
+
+	cloudMap, ok := root["cloud"].(map[string]interface{})
+	if !ok {
+		cloudMap = make(map[string]interface{})
+	}
+
+	cloudMap["enabled"] = true
+	cloudMap["api_key"] = apiKey
+	cloudMap["addr"] = grpcAddr
+	cloudMap["insecure"] = insecure
+	cloudMap["auto_sync"] = map[string]interface{}{"enabled": true}
+	root["cloud"] = cloudMap
+
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, out, 0o644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
 }

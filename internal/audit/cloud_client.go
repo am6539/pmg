@@ -96,6 +96,19 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 		os.Setenv("INSECURE_GRPC_CLIENT_USE_INSECURE_TRANSPORT", "true")
 	}
 
+	// If a config-level API key is set (self-hosted enrollment), inject it so the
+	// dry/cloud credential chain picks it up before keychain/env.
+	if cfg.Config.Cloud.APIKey != "" {
+		os.Setenv("SAFEDEP_API_KEY", cfg.Config.Cloud.APIKey)
+		if os.Getenv("SAFEDEP_TENANT_ID") == "" {
+			hostname, _ := os.Hostname()
+			if hostname == "" {
+				hostname = "self-hosted"
+			}
+			os.Setenv("SAFEDEP_TENANT_ID", hostname)
+		}
+	}
+
 	cloudClient, err := cloud.NewDataPlaneClient("pmg", creds)
 	if err != nil {
 		if keychainResolver != nil {
