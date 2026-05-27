@@ -48,6 +48,25 @@ func (b *SyncClientBundle) Close() error {
 
 // NewSyncClientBundle creates an authenticated SyncClient connected to SafeDep Cloud.
 func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
+	// Inject config-level credentials and endpoint overrides into the environment
+	// BEFORE building credential resolvers so the env resolver picks them up.
+	if cfg.Config.Cloud.Addr != "" {
+		os.Setenv("SAFEDEP_CLOUD_DATA_ADDR", cfg.Config.Cloud.Addr)
+	}
+	if cfg.Config.Cloud.Insecure {
+		os.Setenv("INSECURE_GRPC_CLIENT_USE_INSECURE_TRANSPORT", "true")
+	}
+	if cfg.Config.Cloud.APIKey != "" {
+		os.Setenv("SAFEDEP_API_KEY", cfg.Config.Cloud.APIKey)
+		if os.Getenv("SAFEDEP_TENANT_ID") == "" {
+			hostname, _ := os.Hostname()
+			if hostname == "" {
+				hostname = "self-hosted"
+			}
+			os.Setenv("SAFEDEP_TENANT_ID", hostname)
+		}
+	}
+
 	// Build credential resolver chain: keychain first, env fallback.
 	var resolvers []cloud.CredentialResolver
 	var keychainResolver cloud.CloseableCredentialResolver
@@ -84,29 +103,6 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 			}
 		}
 		return nil, fmt.Errorf("failed to resolve cloud credentials: %w", err)
-	}
-
-	// Apply custom cloud address if configured.
-	// SAFEDEP_CLOUD_DATA_ADDR is read by dry/cloud's NewDataPlaneClient.
-	// INSECURE_GRPC_CLIENT_USE_INSECURE_TRANSPORT is read by dry/adapters/grpc.
-	if cfg.Config.Cloud.Addr != "" {
-		os.Setenv("SAFEDEP_CLOUD_DATA_ADDR", cfg.Config.Cloud.Addr)
-	}
-	if cfg.Config.Cloud.Insecure {
-		os.Setenv("INSECURE_GRPC_CLIENT_USE_INSECURE_TRANSPORT", "true")
-	}
-
-	// If a config-level API key is set (self-hosted enrollment), inject it so the
-	// dry/cloud credential chain picks it up before keychain/env.
-	if cfg.Config.Cloud.APIKey != "" {
-		os.Setenv("SAFEDEP_API_KEY", cfg.Config.Cloud.APIKey)
-		if os.Getenv("SAFEDEP_TENANT_ID") == "" {
-			hostname, _ := os.Hostname()
-			if hostname == "" {
-				hostname = "self-hosted"
-			}
-			os.Setenv("SAFEDEP_TENANT_ID", hostname)
-		}
 	}
 
 	cloudClient, err := cloud.NewDataPlaneClient("pmg", creds)
