@@ -33,6 +33,8 @@ PMG intercepts every package install and checks it for malware **before** code e
 
 ## How PMG Works
 
+![PMG Defense in Depth](docs/assets/pmg-defense-in-depth.png)
+
 PMG takes a defense-in-depth approach. Each install passes through multiple protection layers before code runs, plus an audit trail after.
 
 - **Transparent Interception** — PMG wraps `npm`, `pip`, and other package managers. Developers and AI agents use the same commands with no workflow changes.
