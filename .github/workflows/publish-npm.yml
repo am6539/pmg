@@ -7,6 +7,7 @@ on:
 
 jobs:
   publish-npm:
+    if: false # disabled on fork — upstream safedep/pmg owns @safedep/pmg on npm
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:

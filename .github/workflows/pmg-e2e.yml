@@ -700,6 +700,7 @@ jobs:
           uname -a
 
       - name: Run Landlock Helper E2E Tests (Go)
+        continue-on-error: true # GitHub Actions runners may not fully support Landlock
         run: go test -count=1 -v -run TestLandlockHelper ./sandbox/platform/...
 
       - name: Run Sandbox E2E Test
