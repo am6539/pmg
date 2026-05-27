@@ -774,3 +774,53 @@ func PatchCloudConfig(apiKey, grpcAddr string, insecure bool) error {
 
 	return nil
 }
+
+// PatchRelayConfig writes malysis and aikido_intel relay settings so that
+// all package analysis traffic routes through pmg-cloud instead of reaching
+// SafeDep / Aikido directly. Called automatically after enrollment.
+func PatchRelayConfig(malysisGRPCAddr, aikidoBaseURL string, insecure bool) error {
+	configPath, err := userConfigFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if root == nil {
+		root = make(map[string]interface{})
+	}
+
+	malysisMap, ok := root["malysis"].(map[string]interface{})
+	if !ok {
+		malysisMap = make(map[string]interface{})
+	}
+	malysisMap["addr"] = malysisGRPCAddr
+	malysisMap["insecure"] = insecure
+	root["malysis"] = malysisMap
+
+	aikidoMap, ok := root["aikido_intel"].(map[string]interface{})
+	if !ok {
+		aikidoMap = make(map[string]interface{})
+	}
+	aikidoMap["base_url"] = aikidoBaseURL
+	root["aikido_intel"] = aikidoMap
+
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, out, 0o644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}

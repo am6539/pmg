@@ -120,12 +120,17 @@ func runEnroll(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save enrollment config: %w", err)
 	}
 
+	if err := config.PatchRelayConfig(result.Endpoint, enrollEndpoint, insecure); err != nil {
+		return fmt.Errorf("failed to save relay config: %w", err)
+	}
+
 	ui.Successf("Enrolled successfully with PMG Cloud")
 	ui.Infof("Agent ID: %s", result.AgentID)
 	if result.GroupID != "" {
 		ui.Infof("Group ID: %s", result.GroupID)
 	}
 	ui.Infof("Cloud endpoint: %s", result.Endpoint)
+	ui.Infof("All package checks routed through pmg-cloud (malysis + aikido relay)")
 
 	return nil
 }
