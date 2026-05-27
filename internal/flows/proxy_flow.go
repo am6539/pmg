@@ -342,12 +342,15 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 // When Aikido Intel is enabled, it returns a composite that runs both analyzers in parallel.
 func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 	log.Debugf("Creating malysis query analyzer")
-	malysis, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	cfg := config.Get()
+	malysis, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{
+		Addr:     cfg.Config.Malysis.Addr,
+		Insecure: cfg.Config.Malysis.Insecure,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	cfg := config.Get()
 	if !cfg.Config.AikidoIntel.Enabled {
 		return malysis, nil
 	}

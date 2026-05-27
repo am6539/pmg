@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 
@@ -12,9 +13,17 @@ import (
 	drygrpc "github.com/safedep/dry/adapters/grpc"
 	"github.com/safedep/pmg/config"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-type MalysisQueryAnalyzerConfig struct{}
+// MalysisQueryAnalyzerConfig configures the SafeDep malware analysis endpoint.
+// When Addr is empty, PMG connects to the public community API directly.
+// Set Addr to a pmg-cloud host:port to route queries through the relay.
+type MalysisQueryAnalyzerConfig struct {
+	Addr     string // custom gRPC endpoint (host:port); empty = community-api.safedep.io
+	Insecure bool   // disable TLS; for pmg-cloud servers without TLS
+}
 
 type malysisQueryAnalyzer struct {
 	client malysisv1grpc.MalwareAnalysisServiceClient
@@ -25,6 +34,23 @@ var _ Analyzer = &malysisQueryAnalyzer{}
 var _ PackageVersionAnalyzer = &malysisQueryAnalyzer{}
 
 func NewMalysisQueryAnalyzer(config MalysisQueryAnalyzerConfig) (*malysisQueryAnalyzer, error) {
+	if config.Addr != "" {
+		var cred grpc.DialOption
+		if config.Insecure {
+			cred = grpc.WithTransportCredentials(insecure.NewCredentials())
+		} else {
+			cred = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
+		}
+		conn, err := grpc.NewClient(config.Addr, cred)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to malysis endpoint %s: %w", config.Addr, err)
+		}
+		return &malysisQueryAnalyzer{
+			client: malysisv1grpc.NewMalwareAnalysisServiceClient(conn),
+			Config: config,
+		}, nil
+	}
+
 	client, err := drygrpc.GrpcClient("pmg-malysis-query",
 		"community-api.safedep.io", "443", "", http.Header{}, []grpc.DialOption{})
 	if err != nil {

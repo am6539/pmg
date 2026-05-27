@@ -202,6 +202,14 @@ cloud:
     # Hard timeout applied to a single background sync attempt.
     timeout: 5m
 
+# SafeDep malware analysis endpoint.
+# Leave empty to use the default SafeDep community API (community-api.safedep.io:443).
+# For air-gapped environments, point addr at your pmg-cloud server. pmg-cloud
+# relays queries to SafeDep on behalf of agents that have no internet access.
+malysis:
+  addr: ""
+  insecure: false
+
 # Aikido Intel — free community malware feed, no API key required.
 # Runs alongside SafeDep; installs are blocked if either source flags a package.
 aikido_intel:

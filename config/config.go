@@ -99,6 +99,8 @@ type Config struct {
 	Proxy ProxyConfig `mapstructure:"proxy"`
 
 	AikidoIntel AikidoIntelConfig `mapstructure:"aikido_intel"`
+
+	Malysis MalysisConfig `mapstructure:"malysis"`
 }
 
 // CloudConfig configures audit event sync to SafeDep Cloud.
@@ -125,6 +127,15 @@ type ProxyConfig struct {
 	Enabled      bool                `mapstructure:"enabled"`
 	InstallOnly  bool                `mapstructure:"install_only"`
 	SkipCommands map[string][]string `mapstructure:"skip_commands"`
+}
+
+// MalysisConfig configures the SafeDep malware analysis gRPC endpoint.
+// When Addr is empty, PMG uses the default public community API.
+// For air-gapped environments, point Addr at a pmg-cloud server that relays
+// queries to SafeDep on behalf of agents.
+type MalysisConfig struct {
+	Addr     string `mapstructure:"addr"`     // custom gRPC endpoint (host:port); empty = community-api.safedep.io
+	Insecure bool   `mapstructure:"insecure"` // disable TLS; only for servers without TLS
 }
 
 // AikidoIntelConfig configures the Aikido Intel malware feed analyzer.

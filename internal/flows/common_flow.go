@@ -60,7 +60,10 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 
 	startTime := time.Now()
 
-	malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{
+		Addr:     cfg.Config.Malysis.Addr,
+		Insecure: cfg.Config.Malysis.Insecure,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create malware analyzer: %w", err)
 	}
