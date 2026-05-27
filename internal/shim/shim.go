@@ -3,7 +3,9 @@ package shim
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -63,9 +65,19 @@ func (m *ShimManager) Install() error {
 	}
 
 	for _, pm := range m.config.PackageManagers {
-		if err := m.writeShimScript(pm); err != nil {
-			return fmt.Errorf("failed to write shim for %s: %w", pm, err)
+		if runtime.GOOS == "windows" {
+			if err := m.writeWindowsCmdShim(pm); err != nil {
+				return fmt.Errorf("failed to write shim for %s: %w", pm, err)
+			}
+		} else {
+			if err := m.writeShimScript(pm); err != nil {
+				return fmt.Errorf("failed to write shim for %s: %w", pm, err)
+			}
 		}
+	}
+
+	if runtime.GOOS == "windows" {
+		return m.addPathToWindowsUser()
 	}
 
 	if err := m.addPathToShells(); err != nil {
@@ -80,6 +92,10 @@ func (m *ShimManager) Remove() error {
 		log.Warnf("Warning: failed to remove shim directory: %v", err)
 	}
 
+	if runtime.GOOS == "windows" {
+		return m.removePathFromWindowsUser()
+	}
+
 	if err := m.removePathFromShells(); err != nil {
 		return fmt.Errorf("failed to clean shell configs: %w", err)
 	}
@@ -88,6 +104,16 @@ func (m *ShimManager) Remove() error {
 }
 
 func (m *ShimManager) IsInstalled() (bool, error) {
+	if runtime.GOOS == "windows" {
+		for _, pm := range m.config.PackageManagers {
+			shimPath := filepath.Join(m.config.BinDir, pm+".cmd")
+			if _, err := os.Stat(shimPath); err == nil {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
 	for _, shell := range m.config.Shells {
 		for _, configPath := range shell.CandidateRcFiles(m.config.HomeDir) {
 			data, err := os.ReadFile(configPath)
@@ -208,5 +234,58 @@ func (m *ShimManager) removePathFromShells() error {
 		}
 	}
 
+	return nil
+}
+
+// writeWindowsCmdShim creates a .cmd batch file that forwards calls to pmg.exe.
+func (m *ShimManager) writeWindowsCmdShim(pm string) error {
+	shimPath := filepath.Join(m.config.BinDir, pm+".cmd")
+
+	// Use double-quotes for the pmg path to handle spaces in Windows paths.
+	content := fmt.Sprintf("@echo off\r\nrem PMG shim - do not edit, managed by pmg setup\r\n\"%s\" %s %%*\r\n",
+		m.config.PMGBin, pm)
+
+	return os.WriteFile(shimPath, []byte(content), 0o755)
+}
+
+// addPathToWindowsUser permanently prepends the shim BinDir to the current
+// user's PATH via PowerShell's SetEnvironmentVariable. The change takes effect
+// in new terminal sessions (same behaviour as Unix shell rc file updates).
+func (m *ShimManager) addPathToWindowsUser() error {
+	binDir := m.config.BinDir
+	// Escape single-quotes for the PowerShell single-quoted string literal.
+	safeBinDir := strings.ReplaceAll(binDir, "'", "''")
+	script := fmt.Sprintf(`
+$binDir = '%s'
+$cur = [Environment]::GetEnvironmentVariable('PATH', 'User')
+if ($null -eq $cur) { $cur = '' }
+$parts = $cur -split ';' | Where-Object { $_ -ne '' -and $_ -ne $binDir }
+[Environment]::SetEnvironmentVariable('PATH', ($binDir + ';' + ($parts -join ';')), 'User')
+`, safeBinDir)
+
+	out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to update user PATH: %w\n%s", err, string(out))
+	}
+	return nil
+}
+
+// removePathFromWindowsUser removes the shim BinDir from the current user's
+// PATH via PowerShell.
+func (m *ShimManager) removePathFromWindowsUser() error {
+	binDir := m.config.BinDir
+	safeBinDir := strings.ReplaceAll(binDir, "'", "''")
+	script := fmt.Sprintf(`
+$binDir = '%s'
+$cur = [Environment]::GetEnvironmentVariable('PATH', 'User')
+if ($null -eq $cur) { exit 0 }
+$parts = $cur -split ';' | Where-Object { $_ -ne '' -and $_ -ne $binDir }
+[Environment]::SetEnvironmentVariable('PATH', ($parts -join ';'), 'User')
+`, safeBinDir)
+
+	out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	if err != nil {
+		log.Warnf("Warning: failed to remove PATH entry: %v\n%s", err, string(out))
+	}
 	return nil
 }

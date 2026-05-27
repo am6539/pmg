@@ -24,7 +24,8 @@ func FilterPMGFromPath(pathEnv string) string {
 	filtered := make([]string, 0, len(entries))
 
 	for _, entry := range entries {
-		if !strings.HasSuffix(entry, pmgBinSuffix) {
+		// Normalize to forward slashes so the check works on both Unix and Windows.
+		if !strings.HasSuffix(filepath.ToSlash(entry), pmgBinSuffix) {
 			filtered = append(filtered, entry)
 		}
 	}
