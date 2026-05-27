@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"time"
 
+	"strings"
+
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/ui"
 	appVersion "github.com/safedep/pmg/internal/version"
@@ -30,8 +32,6 @@ func newEnrollCommand() *cobra.Command {
 	cmd.Flags().StringVar(&enrollEndpoint, "endpoint", "", "PMG Cloud HTTP address (e.g. http://server:8080)")
 	cmd.Flags().StringVar(&enrollToken, "token", "", "Enrollment token from PMG Cloud dashboard")
 	cmd.Flags().BoolVar(&enrollInsecure, "insecure", false, "Disable TLS for gRPC (self-signed or no cert)")
-	_ = cmd.MarkFlagRequired("endpoint")
-	_ = cmd.MarkFlagRequired("token")
 	return cmd
 }
 
@@ -56,6 +56,21 @@ type enrollErrorResponse struct {
 }
 
 func runEnroll(cmd *cobra.Command, args []string) error {
+	if enrollEndpoint == "" {
+		val, err := ui.PromptInput("PMG Cloud server (e.g. http://server:8080): ")
+		if err != nil {
+			return fmt.Errorf("failed to read server address: %w", err)
+		}
+		enrollEndpoint = strings.TrimSpace(val)
+	}
+	if enrollToken == "" {
+		val, err := ui.PromptSecret("Enrollment token: ")
+		if err != nil {
+			return fmt.Errorf("failed to read enrollment token: %w", err)
+		}
+		enrollToken = strings.TrimSpace(val)
+	}
+
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "unknown"
