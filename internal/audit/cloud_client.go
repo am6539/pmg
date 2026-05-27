@@ -115,7 +115,19 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 		return nil, fmt.Errorf("failed to create data plane client: %w", err)
 	}
 
-	transport := endpointsync.NewGrpcTransport(cloudClient.Connection())
+	grpcTransport := endpointsync.NewGrpcTransport(cloudClient.Connection())
+
+	// Build a chain transport: try gRPC first; on first failure permanently
+	// fall back to HTTP. This lets sync work through Cloudflare Tunnel (and
+	// other HTTP/1.1 proxies) that do not support gRPC over public hostnames.
+	var transport endpointsync.EventTransport = grpcTransport
+	if cfg.Config.Cloud.Addr != "" {
+		if apiKey, keyErr := creds.GetAPIKey(); keyErr == nil && apiKey != "" {
+			httpURL := cloudHTTPSyncURL(cfg.Config.Cloud.Addr, cfg.Config.Cloud.Insecure)
+			log.Debugf("HTTP sync fallback configured: %s", httpURL)
+			transport = newChainEventTransport(grpcTransport, newHTTPEventTransport(httpURL, apiKey))
+		}
+	}
 
 	var identityOpts []endpointsync.EndpointIdentityOption
 	if cfg.Config.Cloud.EndpointID != "" {
