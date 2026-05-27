@@ -248,39 +248,51 @@ func (m *ShimManager) writeWindowsCmdShim(pm string) error {
 	return os.WriteFile(shimPath, []byte(content), 0o755)
 }
 
-// addPathToWindowsUser permanently prepends the shim BinDir to the current
-// user's PATH via PowerShell's SetEnvironmentVariable. The change takes effect
-// in new terminal sessions (same behaviour as Unix shell rc file updates).
+// addPathToWindowsUser permanently prepends the shim BinDir to the PATH.
+// When running with elevation (admin), it writes to Machine scope so the shim
+// precedes system-wide tools like Node.js. Falls back to User scope otherwise.
 func (m *ShimManager) addPathToWindowsUser() error {
 	binDir := m.config.BinDir
-	// Escape single-quotes for the PowerShell single-quoted string literal.
 	safeBinDir := strings.ReplaceAll(binDir, "'", "''")
+	// Try Machine scope first (requires elevation); fall back to User scope.
+	// The Machine scope is needed to beat system-installed npm/pip in PATH.
 	script := fmt.Sprintf(`
 $binDir = '%s'
-$cur = [Environment]::GetEnvironmentVariable('PATH', 'User')
-if ($null -eq $cur) { $cur = '' }
-$parts = $cur -split ';' | Where-Object { $_ -ne '' -and $_ -ne $binDir }
-[Environment]::SetEnvironmentVariable('PATH', ($binDir + ';' + ($parts -join ';')), 'User')
+$added = $false
+foreach ($scope in @('Machine', 'User')) {
+  try {
+    $cur = [Environment]::GetEnvironmentVariable('PATH', $scope)
+    if ($null -eq $cur) { $cur = '' }
+    $parts = $cur -split ';' | Where-Object { $_ -ne '' -and $_ -ne $binDir }
+    [Environment]::SetEnvironmentVariable('PATH', ($binDir + ';' + ($parts -join ';')), $scope)
+    $added = $true
+    break
+  } catch {}
+}
+if (-not $added) { exit 1 }
 `, safeBinDir)
 
 	out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to update user PATH: %w\n%s", err, string(out))
+		return fmt.Errorf("failed to update PATH: %w\n%s", err, string(out))
 	}
 	return nil
 }
 
-// removePathFromWindowsUser removes the shim BinDir from the current user's
-// PATH via PowerShell.
+// removePathFromWindowsUser removes the shim BinDir from both Machine and User PATH.
 func (m *ShimManager) removePathFromWindowsUser() error {
 	binDir := m.config.BinDir
 	safeBinDir := strings.ReplaceAll(binDir, "'", "''")
 	script := fmt.Sprintf(`
 $binDir = '%s'
-$cur = [Environment]::GetEnvironmentVariable('PATH', 'User')
-if ($null -eq $cur) { exit 0 }
-$parts = $cur -split ';' | Where-Object { $_ -ne '' -and $_ -ne $binDir }
-[Environment]::SetEnvironmentVariable('PATH', ($parts -join ';'), 'User')
+foreach ($scope in @('Machine', 'User')) {
+  try {
+    $cur = [Environment]::GetEnvironmentVariable('PATH', $scope)
+    if ($null -eq $cur) { continue }
+    $parts = $cur -split ';' | Where-Object { $_ -ne '' -and $_ -ne $binDir }
+    [Environment]::SetEnvironmentVariable('PATH', ($parts -join ';'), $scope)
+  } catch {}
+}
 `, safeBinDir)
 
 	out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
