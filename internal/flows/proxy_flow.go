@@ -3,11 +3,13 @@ package flows
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
 
+	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -343,12 +345,24 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 	log.Debugf("Creating malysis query analyzer")
 	cfg := config.Get()
-	malysis, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{
+	grpcMalysis, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{
 		Addr:     cfg.Config.Malysis.Addr,
 		Insecure: cfg.Config.Malysis.Insecure,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	var malysis analyzer.PackageVersionAnalyzer = grpcMalysis
+
+	// Add HTTP fallback for malysis when cloud addr is configured
+	// (gRPC may be blocked by Cloudflare Tunnel on public hostnames)
+	if cfg.Config.Malysis.Addr != "" {
+		if apiKey, keyErr := resolveAPIKey(cfg); keyErr == nil && apiKey != "" {
+			httpURL := malysisHTTPURL(cfg.Config.Malysis.Addr, cfg.Config.Malysis.Insecure)
+			log.Debugf("HTTP malysis fallback configured: %s", httpURL)
+			malysis = analyzer.NewChainMalysisAnalyzer(grpcMalysis, analyzer.NewHTTPMalysisAnalyzer(httpURL, apiKey))
+		}
 	}
 
 	if !cfg.Config.AikidoIntel.Enabled {
@@ -393,6 +407,52 @@ func (f *proxyFlow) createAndStartProxyServer(
 	}
 
 	return proxyServer, proxyAddr, nil
+}
+
+// malysisHTTPURL derives the /api/malysis URL from the gRPC address.
+// addr is "host:port" (e.g. "myhost.example.com:443" or "localhost:8080").
+func malysisHTTPURL(addr string, insecure bool) string {
+	scheme := "https"
+	if insecure {
+		scheme = "http"
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return scheme + "://" + addr + "/api/malysis"
+	}
+	if (!insecure && port == "443") || (insecure && port == "80") {
+		return scheme + "://" + host + "/api/malysis"
+	}
+	return scheme + "://" + host + ":" + port + "/api/malysis"
+}
+
+// resolveAPIKey resolves an API key using the same credential resolver chain as cloud_client.go.
+// Injects config-level overrides into the environment before resolving.
+func resolveAPIKey(cfg *config.RuntimeConfig) (string, error) {
+	if cfg.Config.Cloud.APIKey != "" {
+		os.Setenv("SAFEDEP_API_KEY", cfg.Config.Cloud.APIKey)
+	}
+
+	var resolvers []cloud.CredentialResolver
+
+	if keychainResolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey); err == nil {
+		resolvers = append(resolvers, keychainResolver)
+	}
+
+	if envResolver, err := cloud.NewEnvCredentialResolver(); err == nil {
+		resolvers = append(resolvers, envResolver)
+	}
+
+	if len(resolvers) == 0 {
+		return "", fmt.Errorf("no credential resolvers available")
+	}
+
+	creds, err := cloud.NewChainCredentialResolver(resolvers...).Resolve()
+	if err != nil {
+		return "", err
+	}
+
+	return creds.GetAPIKey()
 }
 
 func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
