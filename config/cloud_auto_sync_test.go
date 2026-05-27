@@ -16,7 +16,7 @@ func TestCloudAutoSyncDefaults(t *testing.T) {
 
 	c := Get().Config.Cloud.AutoSync
 	assert.True(t, c.Enabled, "auto_sync.enabled defaults to true")
-	assert.Equal(t, 15*time.Minute, c.MinInterval)
+	assert.Equal(t, 30*time.Second, c.MinInterval)
 	assert.Equal(t, 5*time.Minute, c.Timeout)
 }
 

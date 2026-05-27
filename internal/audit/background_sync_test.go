@@ -53,8 +53,9 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	t.Helper()
 	tmpDir := t.TempDir()
 	t.Setenv("PMG_CONFIG_DIR", tmpDir)
-	// Make sure no PMG_DISABLE_TELEMETRY leak from the host environment can
-	// fool the analytics short-circuit in MaybeSpawnBackgroundSync.
+	// Ensure PMG_DISABLE_TELEMETRY from the host environment does not influence
+	// cloud-sync behaviour (it no longer should, but keep env clean for tests
+	// that explicitly set DisableTelemetry=true to verify it has no effect).
 	t.Setenv("PMG_DISABLE_TELEMETRY", "false")
 
 	// Re-init the config so configDir picks up the tmpDir we just set.
@@ -108,13 +109,15 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 		assert.Equal(t, 0, rec.callCount())
 	})
 
-	t.Run("telemetry disabled via config", func(t *testing.T) {
+	t.Run("telemetry disabled does not block cloud sync", func(t *testing.T) {
+		// Cloud sync is a security feature independent of analytics/telemetry.
+		// Disabling telemetry must NOT prevent background sync from spawning.
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)
 		cfg.Config.DisableTelemetry = true
 
 		MaybeSpawnBackgroundSync(cfg)
-		assert.Equal(t, 0, rec.callCount())
+		assert.Equal(t, 1, rec.callCount())
 	})
 
 	t.Run("we are the sync-background child", func(t *testing.T) {

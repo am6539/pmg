@@ -6,7 +6,6 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/analytics"
 )
 
 // SyncBackgroundSubcommand is the cobra `Use` of the hidden child command
@@ -48,9 +47,10 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
 		return
 	}
-	if analytics.IsDisabled() {
-		return
-	}
+
+	// Cloud sync is a security feature independent of telemetry/analytics.
+	// Do NOT gate it on analytics.IsDisabled() — CI environments disable
+	// telemetry but still need sync to reach the dashboard.
 
 	if !SyncCooldownElapsed(cfg.CloudSyncLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
 		log.Debugf("Auto-sync cooldown not elapsed; skipping spawn")

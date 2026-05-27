@@ -195,9 +195,8 @@ cloud:
 
     # Minimum gap between sync attempts. The lastrun timestamp is updated on
     # every attempt (success or failure), so a failing cloud endpoint will not
-    # cause every PMG invocation to retry. Reduce this if you want a more
-    # aggressive retry cadence.
-    min_interval: 15m
+    # cause every PMG invocation to retry.
+    min_interval: 30s
 
     # Hard timeout applied to a single background sync attempt.
     timeout: 5m

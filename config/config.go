@@ -367,7 +367,7 @@ func DefaultConfig() RuntimeConfig {
 				Enabled: false,
 				AutoSync: CloudAutoSyncConfig{
 					Enabled:     true,
-					MinInterval: 15 * time.Minute,
+					MinInterval: 30 * time.Second,
 					Timeout:     5 * time.Minute,
 				},
 			},
