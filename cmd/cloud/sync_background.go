@@ -87,6 +87,10 @@ func runSyncBackground(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Infof("Auto-sync: drained %d events to SafeDep Cloud", synced)
+
+	// Send a heartbeat so LastSeen stays fresh even when there are no events.
+	// This lets admins detect removed PMG installations.
+	SendHeartbeatSilent(cmd.Context(), cfg)
 	return nil
 }
 
