@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -20,6 +21,7 @@ func NewPnpmCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := executePnpmFlow(cmd.Context(), args)
 			if err != nil {
+				audit.MaybeSpawnBackgroundSync(config.Get())
 				ui.ErrorExit(err)
 			}
 
