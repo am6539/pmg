@@ -40,6 +40,14 @@ func errStub(name string) *stubAnalyzer {
 	return &stubAnalyzer{name: name, err: errors.New(name + " error")}
 }
 
+func malwareStub(name string) *stubAnalyzer {
+	return &stubAnalyzer{name: name, result: &PackageVersionAnalysisResult{
+		Action:    ActionBlock,
+		IsMalware: true,
+		Summary:   name + " malware",
+	}}
+}
+
 func testPkg() *packagev1.PackageVersion {
 	return &packagev1.PackageVersion{
 		Package: &packagev1.Package{
@@ -103,6 +111,27 @@ func TestComposite_AllError_ReturnsAllow(t *testing.T) {
 	res, err := c.Analyze(context.Background(), testPkg())
 	require.NoError(t, err)
 	assert.Equal(t, ActionAllow, res.Action)
+}
+
+func TestComposite_MalwareTakesPrecedenceOverCooldown(t *testing.T) {
+	// malware block must win over a non-malware block (e.g. cooldown) regardless
+	// of goroutine scheduling order.
+	for range 50 { // repeat to exercise race between goroutines
+		c := NewCompositeAnalyzer(blockStub("cooldown"), malwareStub("aikido"))
+		res, err := c.Analyze(context.Background(), testPkg())
+		require.NoError(t, err)
+		assert.Equal(t, ActionBlock, res.Action)
+		assert.True(t, res.IsMalware, "malware flag must be set")
+		assert.Contains(t, res.Summary, "malware")
+	}
+}
+
+func TestComposite_MalwareWinsWhenMixedWithAllow(t *testing.T) {
+	c := NewCompositeAnalyzer(allowStub("ok"), malwareStub("aikido"), allowStub("also-ok"))
+	res, err := c.Analyze(context.Background(), testPkg())
+	require.NoError(t, err)
+	assert.Equal(t, ActionBlock, res.Action)
+	assert.True(t, res.IsMalware)
 }
 
 func TestComposite_PackageVersionPropagated(t *testing.T) {

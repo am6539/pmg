@@ -58,18 +58,31 @@ func (c *compositeAnalyzer) Analyze(ctx context.Context, pv *packagev1.PackageVe
 	}()
 
 	var allow *PackageVersionAnalysisResult
+	var firstBlock *PackageVersionAnalysisResult
 	for it := range results {
 		if it.err != nil {
 			continue
 		}
 		if it.res != nil && it.res.Action == ActionBlock {
-			return it.res, nil
+			// Malware detection takes precedence over any other block reason
+			// (e.g. dependency cooldown). Without this, a fast cooldown result
+			// can win the channel race and hide the malware signal entirely.
+			if it.res.IsMalware {
+				return it.res, nil
+			}
+			if firstBlock == nil {
+				firstBlock = it.res
+			}
+			continue
 		}
 		if allow == nil {
 			allow = it.res
 		}
 	}
 
+	if firstBlock != nil {
+		return firstBlock, nil
+	}
 	if allow == nil {
 		allow = &PackageVersionAnalysisResult{PackageVersion: pv, Action: ActionAllow}
 	}
