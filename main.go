@@ -192,6 +192,9 @@ func main() {
 	analytics.TrackCI()
 
 	if err := cmd.Execute(); err != nil {
+		// os.Exit skips defers, so explicitly spawn background sync before exiting.
+		// audit.Close already ran via defer above (LIFO), so the WAL is released.
+		audit.MaybeSpawnBackgroundSync(config.Get())
 		type exitCoder interface{ ExitCode() int }
 		if ec, ok := err.(exitCoder); ok {
 			os.Exit(ec.ExitCode())
