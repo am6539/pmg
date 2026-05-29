@@ -64,9 +64,27 @@ func selfUpdate(ctx context.Context, cfg *config.RuntimeConfig, resp HeartbeatRe
 		return fmt.Errorf("chmod: %w", err)
 	}
 
+	// Windows locks a running executable and refuses to overwrite it via
+	// os.Rename. Move the current binary aside first (allowed even while
+	// running), then put the new one in place. The .old file is best-effort
+	// cleaned up on the next run. On Unix this rename-aside is harmless.
+	oldPath := binaryPath + ".old"
+	os.Remove(oldPath) // clear a stale .old from a previous update, if any
+	if err := os.Rename(binaryPath, oldPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("move current binary aside: %w", err)
+	}
 	if err := os.Rename(tmpPath, binaryPath); err != nil {
+		// Roll back so PMG stays runnable.
+		if rbErr := os.Rename(oldPath, binaryPath); rbErr != nil {
+			log.Warnf("self-update rollback failed, binary preserved at %s: %v", oldPath, rbErr)
+		}
 		os.Remove(tmpPath)
 		return fmt.Errorf("replace binary: %w", err)
+	}
+	// Best-effort: on Windows .old may stay locked until the process exits.
+	if err := os.Remove(oldPath); err != nil {
+		log.Debugf("self-update: could not remove %s (cleaned next update): %v", oldPath, err)
 	}
 
 	// Refresh shims so new binary is active for intercepted commands.
