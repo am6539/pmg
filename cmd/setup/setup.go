@@ -2,10 +2,13 @@ package setup
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/heartbeat"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
@@ -62,6 +65,8 @@ func install() error {
 		return fmt.Errorf("failed to install shims: %w", err)
 	}
 
+	installHeartbeatSchedule()
+
 	if runtime.GOOS == "windows" {
 		fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config written successfully")
 		fmt.Printf("   %s\n", ui.Colors.Dim(fmt.Sprintf("Config:  %s", config.Get().ConfigDir())))
@@ -86,6 +91,35 @@ func install() error {
 	return nil
 }
 
+// installHeartbeatSchedule registers a periodic `pmg cloud heartbeat` task so the
+// dashboard sees the machine as online while it is powered on, even when no
+// package manager command runs. Only meaningful when enrolled with a cloud
+// server; failures are non-fatal (best-effort, logged) so they never block setup.
+func installHeartbeatSchedule() {
+	cfg := config.Get()
+	if !cfg.Config.Cloud.Enabled || cfg.Config.Cloud.APIKey == "" {
+		return
+	}
+	pmgPath, err := os.Executable()
+	if err != nil {
+		log.Warnf("heartbeat schedule: failed to resolve pmg path: %v", err)
+		return
+	}
+	if err := heartbeat.NewScheduler().Install(pmgPath); err != nil {
+		log.Warnf("heartbeat schedule: failed to install periodic heartbeat: %v", err)
+		return
+	}
+	fmt.Printf("%s %s\n", ui.Colors.Green("✓"),
+		"Periodic heartbeat scheduled — dashboard will show this machine as online while it is on")
+}
+
+// removeHeartbeatSchedule removes the periodic heartbeat task. Best-effort; logged on failure.
+func removeHeartbeatSchedule() {
+	if err := heartbeat.NewScheduler().Remove(); err != nil {
+		log.Warnf("heartbeat schedule: failed to remove periodic heartbeat: %v", err)
+	}
+}
+
 func NewRemoveCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "remove",
@@ -101,6 +135,8 @@ func NewRemoveCommand() *cobra.Command {
 					return err
 				}
 			}
+
+			removeHeartbeatSchedule()
 
 			if runtime.GOOS == "windows" {
 				shimMgr, err := shim.NewDefaultShimManager()
