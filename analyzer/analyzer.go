@@ -41,6 +41,11 @@ type PackageVersionAnalysisResult struct {
 	// Whether the malware verdict has been verified (confirmed by a human or verification system)
 	IsVerified bool
 
+	// Degraded is true when the analyzer could not actually perform its check
+	// (e.g. network failure with no usable cache). Used by the composite to
+	// fail closed under paranoid mode instead of silently allowing.
+	Degraded bool
+
 	// Analyzer specific data
 	Data any
 }
