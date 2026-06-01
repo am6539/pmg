@@ -365,8 +365,10 @@ func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 		}
 	}
 
+	policyAnalyzer := analyzer.NewPolicyAnalyzer(cfg.PolicyCachePath())
+
 	if !cfg.Config.AikidoIntel.Enabled {
-		return malysis, nil
+		return analyzer.NewCompositeAnalyzer(malysis, policyAnalyzer), nil
 	}
 
 	aikido, err := analyzer.NewAikidoIntelAnalyzer(analyzer.AikidoIntelAnalyzerConfig{
@@ -377,10 +379,10 @@ func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 	})
 	if err != nil {
 		log.Warnf("aikido-intel: failed to create analyzer, skipping: %v", err)
-		return malysis, nil
+		return analyzer.NewCompositeAnalyzer(malysis, policyAnalyzer), nil
 	}
 
-	return analyzer.NewCompositeAnalyzer(malysis, aikido), nil
+	return analyzer.NewCompositeAnalyzer(malysis, aikido, policyAnalyzer), nil
 }
 
 // createAndStartProxyServer creates and starts the proxy server with the given interceptor

@@ -84,6 +84,8 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 		}
 	}
 
+	analyzers = append(analyzers, analyzer.NewPolicyAnalyzer(cfg.PolicyCachePath()))
+
 	interaction := guard.PackageManagerGuardInteraction{
 		SetStatus:                ui.SetStatus,
 		ClearStatus:              ui.ClearStatus,
