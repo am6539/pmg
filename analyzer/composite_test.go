@@ -141,3 +141,45 @@ func TestComposite_PackageVersionPropagated(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, pv, res.PackageVersion)
 }
+
+func degradedStub(name string) *stubAnalyzer {
+	return &stubAnalyzer{name: name, result: &PackageVersionAnalysisResult{
+		Action:   ActionAllow,
+		Degraded: true,
+	}}
+}
+
+func TestComposite_DegradedAllowsWhenNotParanoid(t *testing.T) {
+	orig := paranoidMode
+	paranoidMode = func() bool { return false }
+	defer func() { paranoidMode = orig }()
+
+	c := NewCompositeAnalyzer(degradedStub("aikido"), errStub("malysis"))
+	res, err := c.Analyze(context.Background(), testPkg())
+	require.NoError(t, err)
+	assert.Equal(t, ActionAllow, res.Action)
+}
+
+func TestComposite_DegradedBlocksWhenParanoid(t *testing.T) {
+	orig := paranoidMode
+	paranoidMode = func() bool { return true }
+	defer func() { paranoidMode = orig }()
+
+	c := NewCompositeAnalyzer(degradedStub("aikido"), errStub("malysis"))
+	res, err := c.Analyze(context.Background(), testPkg())
+	require.NoError(t, err)
+	assert.Equal(t, ActionBlock, res.Action)
+	assert.Contains(t, res.Summary, "degraded")
+}
+
+func TestComposite_MalwareWinsEvenWhenAlsoDegraded(t *testing.T) {
+	orig := paranoidMode
+	paranoidMode = func() bool { return true }
+	defer func() { paranoidMode = orig }()
+
+	c := NewCompositeAnalyzer(degradedStub("aikido"), malwareStub("malysis"))
+	res, err := c.Analyze(context.Background(), testPkg())
+	require.NoError(t, err)
+	assert.Equal(t, ActionBlock, res.Action)
+	assert.True(t, res.IsMalware)
+}

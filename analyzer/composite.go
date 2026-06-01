@@ -5,7 +5,11 @@ import (
 	"sync"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/config"
 )
+
+// paranoidMode reports whether paranoid mode is on. Overridable in tests.
+var paranoidMode = func() bool { return config.Get().Config.Paranoid }
 
 type compositeAnalyzer struct {
 	analyzers []PackageVersionAnalyzer
@@ -59,14 +63,13 @@ func (c *compositeAnalyzer) Analyze(ctx context.Context, pv *packagev1.PackageVe
 
 	var allow *PackageVersionAnalysisResult
 	var firstBlock *PackageVersionAnalysisResult
+	degraded := false
 	for it := range results {
 		if it.err != nil {
+			degraded = true // an analyzer failed outright; detection is partial
 			continue
 		}
 		if it.res != nil && it.res.Action == ActionBlock {
-			// Malware detection takes precedence over any other block reason
-			// (e.g. dependency cooldown). Without this, a fast cooldown result
-			// can win the channel race and hide the malware signal entirely.
 			if it.res.IsMalware {
 				return it.res, nil
 			}
@@ -74,6 +77,9 @@ func (c *compositeAnalyzer) Analyze(ctx context.Context, pv *packagev1.PackageVe
 				firstBlock = it.res
 			}
 			continue
+		}
+		if it.res != nil && it.res.Degraded {
+			degraded = true
 		}
 		if allow == nil {
 			allow = it.res
@@ -83,6 +89,17 @@ func (c *compositeAnalyzer) Analyze(ctx context.Context, pv *packagev1.PackageVe
 	if firstBlock != nil {
 		return firstBlock, nil
 	}
+
+	// Fail closed: if detection was degraded and the operator opted into
+	// paranoid mode, block rather than silently allow an unchecked package.
+	if degraded && paranoidMode() {
+		return &PackageVersionAnalysisResult{
+			PackageVersion: pv,
+			Action:         ActionBlock,
+			Summary:        "malware detection degraded (feed/analyzer unavailable); blocked under paranoid mode",
+		}, nil
+	}
+
 	if allow == nil {
 		allow = &PackageVersionAnalysisResult{PackageVersion: pv, Action: ActionAllow}
 	}
