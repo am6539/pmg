@@ -235,6 +235,11 @@ type RuntimeConfig struct {
 	viper                    *viper.Viper
 }
 
+// PolicyCachePath returns the path to the cached org policy pushed from pmg-cloud.
+func (r *RuntimeConfig) PolicyCachePath() string {
+	return filepath.Join(r.configDir, "cloud-policy.json")
+}
+
 // CloudSyncDBPath returns the path to the cloud sync WAL database.
 func (r *RuntimeConfig) CloudSyncDBPath() string {
 	return filepath.Join(r.configDir, "cloud-sync.db")

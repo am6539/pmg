@@ -12,16 +12,18 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/policy"
 	appVersion "github.com/safedep/pmg/internal/version"
 	"github.com/spf13/cobra"
 )
 
 // HeartbeatResponse is the JSON body returned by POST /api/heartbeat.
 type HeartbeatResponse struct {
-	UpdateAvailable bool   `json:"update_available"`
-	Version         string `json:"version,omitempty"`
-	DownloadURL     string `json:"download_url,omitempty"`
-	SHA256          string `json:"sha256,omitempty"`
+	UpdateAvailable bool           `json:"update_available"`
+	Version         string         `json:"version,omitempty"`
+	DownloadURL     string         `json:"download_url,omitempty"`
+	SHA256          string         `json:"sha256,omitempty"`
+	Policy          *policy.Policy `json:"policy,omitempty"`
 }
 
 func newHeartbeatCommand() *cobra.Command {
@@ -102,6 +104,11 @@ func sendHeartbeat(ctx context.Context, cfg *config.RuntimeConfig) (HeartbeatRes
 	var hbResp HeartbeatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&hbResp); err != nil {
 		return HeartbeatResponse{}, fmt.Errorf("decode response: %w", err)
+	}
+	if hbResp.Policy != nil {
+		if err := policy.Save(cfg.PolicyCachePath(), hbResp.Policy); err != nil {
+			log.Debugf("Heartbeat: failed to cache org policy: %v", err)
+		}
 	}
 	return hbResp, nil
 }
