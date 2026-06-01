@@ -35,6 +35,10 @@ func newHeartbeatCommand() *cobra.Command {
 }
 
 func runHeartbeat(cmd *cobra.Command, args []string) error {
+	// When launched by the Windows scheduled task (its own console), hide the
+	// console window so no CMD window flashes. No-op interactively / on Unix.
+	hideConsoleWindowIfOwned()
+
 	cfg := config.Get()
 	resp, err := sendHeartbeat(cmd.Context(), cfg)
 	if err != nil {
