@@ -82,6 +82,9 @@ func (a *aikidoIntelAnalyzer) Analyze(ctx context.Context, pv *packagev1.Package
 
 	snap := a.getSnapshot(ctx, eco, feedPath, ecoName)
 	if snap == nil {
+		// No feed and no usable disk cache: we genuinely could not check.
+		// Mark degraded so the composite can fail closed under paranoid mode.
+		allow.Degraded = true
 		return allow, nil
 	}
 
