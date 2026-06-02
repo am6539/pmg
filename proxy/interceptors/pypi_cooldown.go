@@ -8,6 +8,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -18,6 +19,10 @@ const pypiSimpleAPIContentType = "application/vnd.pypi.simple.v1+json"
 // so pip's resolver naturally falls back to the latest eligible version.
 type pypiCooldownHandler struct {
 	statsCollector *AnalysisStatsCollector
+	// malwareChecker is the local malware-feed analyzer (may be nil). Set by the
+	// registry interceptor. Used to flag cooldown-stripped versions that are
+	// also known malware so they are not reported as clean cooldown blocks.
+	malwareChecker analyzer.PackageVersionAnalyzer
 }
 
 func newPypiCooldownHandler(statsCollector *AnalysisStatsCollector) *pypiCooldownHandler {
@@ -54,7 +59,7 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
 
-			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_PYPI, packageName, pinnedVersion, dates, remaining, cooldownDays)
+			recordCooldownStats(h.statsCollector, h.malwareChecker, packagev1.Ecosystem_ECOSYSTEM_PYPI, packageName, pinnedVersion, dates, remaining, cooldownDays)
 
 			headers.Set("Cache-Control", "no-store")
 			return statusCode, headers, strippedBody, nil

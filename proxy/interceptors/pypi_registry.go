@@ -51,6 +51,7 @@ func NewPypiRegistryInterceptor(
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
+	malwareFeed analyzer.PackageVersionAnalyzer,
 ) *PypiRegistryInterceptor {
 	// Re-key pinned versions to the normalized form (lowercase, underscores→hyphens)
 	// so lookups by URL-parsed package name match correctly.
@@ -59,6 +60,11 @@ func NewPypiRegistryInterceptor(
 		normalizedPinned[denormalizePyPIPackageName(name)] = version
 	}
 	execContext.PinnedVersions = normalizedPinned
+
+	cooldownHandler := newPypiCooldownHandler(statsCollector)
+	// malwareFeed is the local Aikido feed analyzer (no network). The cooldown
+	// handler uses it to flag stripped versions that are also known malware.
+	cooldownHandler.malwareChecker = malwareFeed
 
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
@@ -69,7 +75,7 @@ func NewPypiRegistryInterceptor(
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi"),
 			execContext:      execContext,
 		},
-		cooldownHandler: newPypiCooldownHandler(statsCollector),
+		cooldownHandler: cooldownHandler,
 	}
 }
 

@@ -48,7 +48,12 @@ func NewNpmRegistryInterceptor(
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
+	malwareFeed analyzer.PackageVersionAnalyzer,
 ) *NpmRegistryInterceptor {
+	cooldownHandler := newNpmCooldownHandler(statsCollector)
+	// malwareFeed is the local Aikido feed analyzer (no network). The cooldown
+	// handler uses it to flag stripped versions that are also known malware.
+	cooldownHandler.malwareChecker = malwareFeed
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
@@ -58,7 +63,7 @@ func NewNpmRegistryInterceptor(
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-npm"),
 			execContext:      execContext,
 		},
-		cooldownHandler: newNpmCooldownHandler(statsCollector),
+		cooldownHandler: cooldownHandler,
 	}
 }
 

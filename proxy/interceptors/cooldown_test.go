@@ -1,11 +1,56 @@
 package interceptors
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/analyzer"
 	"github.com/stretchr/testify/assert"
 )
+
+// fakeMalwareChecker flags the configured set of versions as malware.
+type fakeMalwareChecker struct {
+	malwareVersions map[string]bool
+}
+
+func (f *fakeMalwareChecker) Name() string { return "fake" }
+
+func (f *fakeMalwareChecker) Analyze(_ context.Context, pv *packagev1.PackageVersion) (*analyzer.PackageVersionAnalysisResult, error) {
+	if f.malwareVersions[pv.GetVersion()] {
+		return &analyzer.PackageVersionAnalysisResult{
+			PackageVersion: pv,
+			Action:         analyzer.ActionBlock,
+			IsMalware:      true,
+			IsVerified:     true,
+			Summary:        "MALWARE",
+		}, nil
+	}
+	return &analyzer.PackageVersionAnalysisResult{PackageVersion: pv, Action: analyzer.ActionAllow}, nil
+}
+
+func TestMalwareInCooldownWindow_FlagsOnlyInWindowMalware(t *testing.T) {
+	now := time.Now()
+	dates := map[string]time.Time{
+		"3.6.1": now.Add(-1 * 24 * time.Hour),  // in cooldown window, malware
+		"3.6.0": now.Add(-30 * 24 * time.Hour), // outside window, malware (ignored)
+		"3.5.0": now.Add(-2 * 24 * time.Hour),  // in window, clean
+	}
+	checker := &fakeMalwareChecker{malwareVersions: map[string]bool{"3.6.1": true, "3.6.0": true}}
+
+	got := malwareInCooldownWindow(checker, packagev1.Ecosystem_ECOSYSTEM_NPM, "@redhat-cloud-services/types", dates, 5)
+
+	assert.Len(t, got, 1)
+	assert.Contains(t, got, "3.6.1")
+	assert.NotContains(t, got, "3.6.0") // outside cooldown window
+	assert.NotContains(t, got, "3.5.0") // clean
+}
+
+func TestMalwareInCooldownWindow_NilCheckerEmpty(t *testing.T) {
+	dates := map[string]time.Time{"1.0.0": time.Now()}
+	assert.Empty(t, malwareInCooldownWindow(nil, packagev1.Ecosystem_ECOSYSTEM_NPM, "x", dates, 5))
+}
 
 func TestCooldownIsWithinWindow(t *testing.T) {
 	now := time.Now()

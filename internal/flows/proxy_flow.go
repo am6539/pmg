@@ -137,7 +137,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	// Create analyzer
-	malysisAnalyzer, err := f.createAnalyzer()
+	malysisAnalyzer, malwareFeed, err := f.createAnalyzer()
 	if err != nil {
 		return fmt.Errorf("failed to create analyzer: %w", err)
 	}
@@ -171,7 +171,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// Create ecosystem-specific interceptor using factory
 	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
 		PinnedVersions: pinnedVersions,
-	})
+	}, malwareFeed)
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
@@ -342,7 +342,11 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 
 // createAnalyzer creates the analyzer(s) for package security analysis.
 // When Aikido Intel is enabled, it returns a composite that runs both analyzers in parallel.
-func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
+// createAnalyzer returns the composite analyzer used for package analysis and,
+// separately, the local Aikido feed analyzer (or nil) so the cooldown handler
+// can cross-check stripped versions against the malware feed without making
+// network calls (unlike the composite, which also queries malysis).
+func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, analyzer.PackageVersionAnalyzer, error) {
 	log.Debugf("Creating malysis query analyzer")
 	cfg := config.Get()
 	grpcMalysis, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{
@@ -350,7 +354,7 @@ func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 		Insecure: cfg.Config.Malysis.Insecure,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var malysis analyzer.PackageVersionAnalyzer = grpcMalysis
@@ -368,7 +372,7 @@ func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 	policyAnalyzer := analyzer.NewPolicyAnalyzer(cfg.PolicyCachePath())
 
 	if !cfg.Config.AikidoIntel.Enabled {
-		return analyzer.NewCompositeAnalyzer(malysis, policyAnalyzer), nil
+		return analyzer.NewCompositeAnalyzer(malysis, policyAnalyzer), nil, nil
 	}
 
 	aikido, err := analyzer.NewAikidoIntelAnalyzer(analyzer.AikidoIntelAnalyzerConfig{
@@ -379,10 +383,10 @@ func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 	})
 	if err != nil {
 		log.Warnf("aikido-intel: failed to create analyzer, skipping: %v", err)
-		return analyzer.NewCompositeAnalyzer(malysis, policyAnalyzer), nil
+		return analyzer.NewCompositeAnalyzer(malysis, policyAnalyzer), nil, nil
 	}
 
-	return analyzer.NewCompositeAnalyzer(malysis, aikido, policyAnalyzer), nil
+	return analyzer.NewCompositeAnalyzer(malysis, aikido, policyAnalyzer), aikido, nil
 }
 
 // createAndStartProxyServer creates and starts the proxy server with the given interceptor

@@ -288,7 +288,7 @@ func TestStripCooldownFiles_MultipleFilesPerVersion_AllStripped(t *testing.T) {
 	require.NoError(t, err)
 
 	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5)
-	assert.Equal(t, 1, stripped)  // 1 version stripped
+	assert.Equal(t, 1, stripped) // 1 version stripped
 	assert.Equal(t, 0, remaining)
 
 	var result struct {
@@ -586,7 +586,7 @@ func TestPyPICooldown_HandleMetadataRequest_UnpinnedWithRemainingVersions_NoBloc
 func TestPyPICooldown_InterceptorDelegation_CooldownEnabled(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 
-	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{}, nil)
 
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 	ctx.Hostname = "pypi.org"
@@ -601,7 +601,7 @@ func TestPyPICooldown_InterceptorDelegation_CooldownEnabled(t *testing.T) {
 func TestPyPICooldown_InterceptorDelegation_CooldownDisabled(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false, Days: 5})
 
-	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{}, nil)
 
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 	ctx.Hostname = "pypi.org"
@@ -616,7 +616,7 @@ func TestPyPICooldown_InterceptorDelegation_CooldownDisabled(t *testing.T) {
 func TestPyPICooldown_JSONAPIRequest_NotIntercepted(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 
-	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{}, nil)
 
 	ctx := makeTestRequestContext("https://pypi.org/pypi/requests/json")
 	ctx.Hostname = "pypi.org"
@@ -635,7 +635,7 @@ func TestPyPICooldown_FileDownloadBypassesCooldown(t *testing.T) {
 	config.Get().InsecureInstallation = true
 	t.Cleanup(func() { config.Get().InsecureInstallation = origInsecure })
 
-	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{}, nil)
 
 	ctx := makeTestRequestContext("https://files.pythonhosted.org/packages/ab/cd/ef/requests-2.31.0-py3-none-any.whl")
 	ctx.Hostname = "files.pythonhosted.org"

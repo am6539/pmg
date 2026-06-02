@@ -1,11 +1,45 @@
 package interceptors
 
 import (
+	"context"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/audit"
 )
+
+// newCooldownPV builds a PackageVersion for the given ecosystem/name/version.
+func newCooldownPV(ecosystem packagev1.Ecosystem, name, version string) *packagev1.PackageVersion {
+	pv := &packagev1.PackageVersion{}
+	pv.SetPackage(&packagev1.Package{})
+	pv.GetPackage().SetName(name)
+	pv.GetPackage().SetEcosystem(ecosystem)
+	pv.SetVersion(version)
+	return pv
+}
+
+// malwareInCooldownWindow returns, for each version still inside the cooldown
+// window, the malware analysis result when the local feed flags it as malware.
+// It performs no audit side effects so it can be unit-tested in isolation.
+// A nil checker yields an empty map.
+func malwareInCooldownWindow(checker analyzer.PackageVersionAnalyzer, ecosystem packagev1.Ecosystem, name string, dates map[string]time.Time, cooldownDays int) map[string]*analyzer.PackageVersionAnalysisResult {
+	out := map[string]*analyzer.PackageVersionAnalysisResult{}
+	if checker == nil {
+		return out
+	}
+	for version, publishDate := range dates {
+		if within, _, _ := cooldownIsWithinWindow(publishDate, cooldownDays); !within {
+			continue
+		}
+		res, err := checker.Analyze(context.Background(), newCooldownPV(ecosystem, name, version))
+		if err != nil || res == nil || !res.IsMalware {
+			continue
+		}
+		out[version] = res
+	}
+	return out
+}
 
 // cooldownIsWithinWindow reports whether a version published at publishDate is still
 // within the cooldown window of cooldownDays. Returns withinCooldown, daysSincePublish,
@@ -39,20 +73,26 @@ func cooldownOldestVersion(dates map[string]time.Time) (string, time.Time) {
 // recordCooldownStats records a cooldown block event. When all versions are blocked
 // (remaining == 0), it reports the oldest version (closest to exiting cooldown).
 // Otherwise, if a pinned version was stripped, it reports that specific version.
-func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packagev1.Ecosystem, packageName string, pinnedVersion string, dates map[string]time.Time, remaining int, cooldownDays int) {
+func recordCooldownStats(statsCollector *AnalysisStatsCollector, malwareChecker analyzer.PackageVersionAnalyzer, ecosystem packagev1.Ecosystem, packageName string, pinnedVersion string, dates map[string]time.Time, remaining int, cooldownDays int) {
 	if statsCollector == nil {
 		return
 	}
 
-	logCooldown := func(version string, publishDate time.Time, daysAgo, daysLeft int) {
-		statsCollector.RecordCooldownBlocked(packageName, version, publishDate, daysAgo, daysLeft, cooldownDays)
+	// A version can be both too new (cooldown) and known malware. Surface such
+	// versions as MALWARE so the dashboard never reports a blacklisted version
+	// as a clean cooldown block. The local feed lookup is version-exact.
+	malwareVersions := malwareInCooldownWindow(malwareChecker, ecosystem, packageName, dates, cooldownDays)
+	for version, res := range malwareVersions {
+		audit.LogMalwareBlocked(newCooldownPV(ecosystem, packageName, version),
+			res.Summary, res.AnalysisID, res.ReferenceURL, res.IsMalware, res.IsVerified)
+	}
 
-		pv := &packagev1.PackageVersion{}
-		pv.SetPackage(&packagev1.Package{})
-		pv.GetPackage().SetName(packageName)
-		pv.GetPackage().SetEcosystem(ecosystem)
-		pv.SetVersion(version)
-		audit.LogDependencyCooldown(pv, publishDate, cooldownDays, daysAgo, daysLeft)
+	logCooldown := func(version string, publishDate time.Time, daysAgo, daysLeft int) {
+		if _, isMalware := malwareVersions[version]; isMalware {
+			return // already surfaced as malware; do not also log a clean cooldown
+		}
+		statsCollector.RecordCooldownBlocked(packageName, version, publishDate, daysAgo, daysLeft, cooldownDays)
+		audit.LogDependencyCooldown(newCooldownPV(ecosystem, packageName, version), publishDate, cooldownDays, daysAgo, daysLeft)
 	}
 
 	if remaining == 0 {

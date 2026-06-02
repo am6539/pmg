@@ -22,15 +22,19 @@ type InterceptorFactory struct {
 	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
 	execContext      InterceptorContext
+	malwareFeed      analyzer.PackageVersionAnalyzer
 }
 
-// NewInterceptorFactory creates a new interceptor factory with shared dependencies
+// NewInterceptorFactory creates a new interceptor factory with shared dependencies.
+// malwareFeed is the local Aikido feed analyzer (may be nil) used by the cooldown
+// handler to flag stripped versions that are also known malware.
 func NewInterceptorFactory(
 	analyzer analyzer.PackageVersionAnalyzer,
 	cache AnalysisCache,
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
+	malwareFeed analyzer.PackageVersionAnalyzer,
 ) *InterceptorFactory {
 	return &InterceptorFactory{
 		analyzer:         analyzer,
@@ -38,6 +42,7 @@ func NewInterceptorFactory(
 		statsCollector:   statsCollector,
 		confirmationChan: confirmationChan,
 		execContext:      execContext,
+		malwareFeed:      malwareFeed,
 	}
 }
 
@@ -52,6 +57,7 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.statsCollector,
 			f.confirmationChan,
 			f.execContext,
+			f.malwareFeed,
 		), nil
 
 	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
@@ -61,6 +67,7 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.statsCollector,
 			f.confirmationChan,
 			f.execContext,
+			f.malwareFeed,
 		), nil
 
 	default:
