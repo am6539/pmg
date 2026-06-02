@@ -19,14 +19,16 @@ func newScheduler() Scheduler { return &schtasksScheduler{} }
 const schtaskName = "PMG Heartbeat"
 
 func (s *schtasksScheduler) Install(pmgPath string) error {
-	// The task launches the signed pmg binary directly. The heartbeat command
-	// hides its own console window at startup (see cmd/cloud console handling),
-	// so no CMD window flashes — without resorting to a hidden-window VBScript
-	// shim, which antivirus/EDR flag as a malware (LOLBin) pattern.
+	// Run the heartbeat through conhost.exe --headless. conhost is a trusted
+	// Windows system binary (System32) that runs a console application inside a
+	// headless pseudo-console with NO visible window — eliminating the CMD flash
+	// entirely, unlike ShowWindow(SW_HIDE) which only hides the window after the
+	// OS has already created and shown it. This avoids both the flash and the
+	// hidden-window VBScript shim that antivirus/EDR flag as a LOLBin pattern.
 	cmd := exec.Command("schtasks",
 		"/Create",
 		"/TN", schtaskName,
-		"/TR", fmt.Sprintf(`"%s" cloud heartbeat`, pmgPath),
+		"/TR", fmt.Sprintf(`conhost.exe --headless "%s" cloud heartbeat`, pmgPath),
 		"/SC", "MINUTE",
 		"/MO", fmt.Sprintf("%d", intervalMinutes),
 		"/F",
