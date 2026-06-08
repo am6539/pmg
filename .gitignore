@@ -24,6 +24,16 @@ bin/
 
 # env file
 .env
+AGENTS.md
+CLAUDE.md
 
 dist/
 .DS_Store
+
+test/
+
+# Playwright MCP cache (contains localhost screenshots/logs)
+.playwright-mcp/
+
+# Superpowers plans (internal planning docs)
+docs/superpowers/
