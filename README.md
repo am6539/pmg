@@ -273,12 +273,31 @@ pmg config set <key> <v>   Write a config value
 
 ## Uninstallation
 
+### macOS / Linux
+
 ```bash
 pmg setup remove                    # remove shell integration
 pmg setup remove --config-file      # also remove config file
 rm -f ~/.local/bin/pmg              # remove binary (install-script default path)
 # or: sudo rm -f /usr/local/bin/pmg
 ```
+
+### Windows (PowerShell)
+
+```powershell
+pmg setup remove                    # remove shell integration
+
+# Remove binary and shims
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\pmg" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$env:USERPROFILE\.pmg" -ErrorAction SilentlyContinue
+
+# Remove PMG from PATH
+$currentPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
+$cleanedPath = ($currentPath -split ';' | Where-Object { $_ -notmatch 'pmg' -and $_ -notmatch '\.pmg' }) -join ';'
+[Environment]::SetEnvironmentVariable('PATH', $cleanedPath, 'User')
+```
+
+> **Note:** Open a new terminal after uninstalling for PATH changes to take effect.
 
 ## Trust and Security
 
