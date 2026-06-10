@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"runtime"
 	"strings"
@@ -24,6 +25,22 @@ type HeartbeatResponse struct {
 	DownloadURL     string         `json:"download_url,omitempty"`
 	SHA256          string         `json:"sha256,omitempty"`
 	Policy          *policy.Policy `json:"policy,omitempty"`
+}
+
+// getLocalIP detects the primary non-loopback IPv4 address.
+func getLocalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
+			}
+		}
+	}
+	return ""
 }
 
 func newHeartbeatCommand() *cobra.Command {
@@ -78,9 +95,10 @@ func sendHeartbeat(ctx context.Context, cfg *config.RuntimeConfig) (HeartbeatRes
 		version = "dev"
 	}
 	body, _ := json.Marshal(map[string]string{
-		"version": version,
-		"os":      runtime.GOOS,
-		"arch":    runtime.GOARCH,
+		"version":  version,
+		"os":       runtime.GOOS,
+		"arch":     runtime.GOARCH,
+		"local_ip": getLocalIP(),
 	})
 
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
