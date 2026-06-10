@@ -41,6 +41,7 @@ type enrollRequest struct {
 	OS         string `json:"os"`
 	Arch       string `json:"arch"`
 	PmgVersion string `json:"pmg_version"`
+	LocalIP    string `json:"local_ip"`
 }
 
 type enrollResponse struct {
@@ -87,6 +88,7 @@ func runEnroll(cmd *cobra.Command, args []string) error {
 		OS:         runtime.GOOS,
 		Arch:       runtime.GOARCH,
 		PmgVersion: version,
+		LocalIP:    getLocalIP(),
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
