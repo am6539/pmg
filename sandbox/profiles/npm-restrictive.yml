@@ -93,6 +93,14 @@ network:
   deny_outbound:
     - "*:*"
 
+environment:
+  # This profile is the shared base for the npm ecosystem and deliberately
+  # allows no environment variables: everything in the built-in
+  # DANGEROUS_ENV_VARS list is scrubbed. Each package manager's leaf profile
+  # (npm, yarn, bun, pnpm, npx) re-allows only the variables that
+  # package manager needs for auth, registry config, and TLS.
+  allow: []
+
 process:
   allow_exec:
     - /usr/bin/node

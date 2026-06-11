@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/safedep/dry/log"
 )
@@ -16,6 +17,7 @@ var validSandboxAllowTypes = map[SandboxAllowType]bool{
 	SandboxAllowExec:       true,
 	SandboxAllowNetConnect: true,
 	SandboxAllowNetBind:    true,
+	SandboxAllowEnv:        true,
 }
 
 // parseSandboxAllowOverrides parses raw --sandbox-allow flag values into validated overrides.
@@ -69,7 +71,7 @@ func parseSingleOverride(raw string) (SandboxAllowOverride, error) {
 	}
 
 	if !validSandboxAllowTypes[allowType] {
-		return SandboxAllowOverride{}, fmt.Errorf("unknown type %q, valid types: read, write, exec, net-connect, net-bind", typStr)
+		return SandboxAllowOverride{}, fmt.Errorf("unknown type %q, valid types: read, write, exec, net-connect, net-bind, env", typStr)
 	}
 
 	resolved, err := validateAndResolveValue(allowType, value)
@@ -95,9 +97,31 @@ func validateAndResolveValue(typ SandboxAllowType, value string) (string, error)
 		return validateNetConnect(value)
 	case SandboxAllowNetBind:
 		return validateNetBind(value)
+	case SandboxAllowEnv:
+		return validateEnvName(value)
 	default:
 		return "", fmt.Errorf("unhandled type: %s", typ)
 	}
+}
+
+// validateEnvName validates an env allow value. The value is an environment
+// variable name or name glob (e.g. NPM_TOKEN, npm_config_*) and is kept
+// verbatim. Unlike filesystem/exec values it is NOT path-resolved, since it
+// matches a variable name and not a filesystem location. Matching is
+// case-insensitive at scrub time, so the value is not normalized here.
+// Whitespace and control characters are rejected because the value is echoed
+// back in logs and audit events, and backslash and separators because they
+// have no place in a variable name or glob.
+func validateEnvName(value string) (string, error) {
+	invalid := strings.ContainsAny(value, "=/\\") ||
+		strings.ContainsFunc(value, func(r rune) bool {
+			return unicode.IsSpace(r) || unicode.IsControl(r)
+		})
+	if invalid {
+		return "", fmt.Errorf("invalid env variable name %q (expected a name or name glob, e.g. NPM_TOKEN or npm_config_*)", value)
+	}
+
+	return value, nil
 }
 
 // resolveFilesystemPath resolves a filesystem path for read/write overrides.
