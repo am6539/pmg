@@ -97,9 +97,45 @@ type Config struct {
 
 	DependencyCooldown DependencyCooldownConfig `mapstructure:"dependency_cooldown"`
 
+	// AnalysisCache configures the optional cross-run cache of malware-analysis
+	// verdicts, so repeat installs of an already-screened dependency graph skip
+	// the per-package analysis round-trip.
+	AnalysisCache AnalysisCacheConfig `mapstructure:"analysis_cache"`
+
 	Cloud CloudConfig `mapstructure:"cloud"`
 
 	Proxy ProxyConfig `mapstructure:"proxy"`
+}
+
+// AnalysisCacheConfig is the umbrella for per-analyzer cross-run caches. Caching
+// is analyzer-specific — each analyzer decides what is safe to cache — so config
+// is nested per analyzer rather than shared. Today only the Malysis (malware)
+// analyzer has a cache; future analyzers can add their own sub-config here.
+type AnalysisCacheConfig struct {
+	// Malysis configures the cross-run cache for the Malysis malware analyzer.
+	Malysis MalysisCacheConfig `mapstructure:"malysis"`
+}
+
+// MalysisCacheConfig configures a persistent, cross-run cache of package
+// malware-analysis verdicts produced by the Malysis analyzer.
+//
+// By default PMG keeps an in-memory analysis cache that lives only for the
+// duration of a single invocation, so every install re-screens the whole
+// resolved graph against the analysis backend. When Enabled, clean (ALLOW)
+// verdicts are additionally persisted on disk and reused across runs, which
+// makes repeat installs of an unchanged graph fast.
+//
+// Security trade-off: a version that was clean when first screened but is later
+// flagged as malicious is served from cache (and thus allowed) until its entry
+// expires; TTL bounds that exposure window. Only ALLOW verdicts are cached —
+// suspicious, malicious, and tenant-excluded verdicts are always re-evaluated.
+// Disabled by default.
+type MalysisCacheConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+
+	// TTL is how long a cached verdict remains valid. A non-positive TTL
+	// disables persistence (entries are always treated as a miss).
+	TTL time.Duration `mapstructure:"ttl"`
 }
 
 // CloudConfig configures audit event sync to SafeDep Cloud.
@@ -268,6 +304,7 @@ type RuntimeConfig struct {
 	sandboxProfileDir        string
 	sandboxOverlayDir        string
 	sandboxViolationCacheDir string
+	cacheDir                 string
 	viper                    *viper.Viper
 }
 
@@ -342,6 +379,15 @@ func (r *RuntimeConfig) SandboxViolationCacheDir() string {
 	return r.sandboxViolationCacheDir
 }
 
+// CacheDir returns the path to the PMG cache root directory. This follows the
+// platform cache convention (XDG cache dir on Linux, ~/Library/Caches on macOS,
+// %LOCALAPPDATA% on Windows) and is overridable via PMG_CACHE_DIR. Caching
+// layers (e.g. the analysis cache) should store regenerable data here rather
+// than under the config directory.
+func (r *RuntimeConfig) CacheDir() string {
+	return r.cacheDir
+}
+
 func (r *RuntimeConfig) IsProxyModeEnabled() bool {
 	return r.Config.Proxy.Enabled
 }
@@ -395,6 +441,12 @@ func DefaultConfig() RuntimeConfig {
 			DependencyCooldown: DependencyCooldownConfig{
 				Enabled: true,
 				Days:    5,
+			},
+			AnalysisCache: AnalysisCacheConfig{
+				Malysis: MalysisCacheConfig{
+					Enabled: false,
+					TTL:     24 * time.Hour,
+				},
 			},
 			Cloud: CloudConfig{
 				Enabled: false,
@@ -472,6 +524,11 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get sandbox overlay directory: %w", err))
 	}
 
+	cacheRootDir, err := cacheDir()
+	if err != nil {
+		panic(fmt.Errorf("failed to get cache directory: %w", err))
+	}
+
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = activeConfigPath
 	globalConfig.userConfigFilePath = userConfigPath
@@ -479,6 +536,7 @@ func initConfig() {
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxOverlayDir = sandboxOverlayDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
+	globalConfig.cacheDir = cacheRootDir
 
 	// A globally managed config enforces lockdown only when it opts in via
 	// global_lockdown, read straight from the file so it cannot be flipped by
