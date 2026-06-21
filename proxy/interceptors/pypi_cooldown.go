@@ -9,6 +9,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -28,8 +29,20 @@ func newPypiCooldownHandler(statsCollector *AnalysisStatsCollector) *pypiCooldow
 // HandleMetadataRequest overrides the Accept header to force a PEP 691 JSON response,
 // then registers a response modifier that strips files for versions within the cooldown window.
 // If the client does not support PEP 691 (pip < 22.3), cooldown is skipped to avoid
-// returning a content type the client cannot parse.
-func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string, exemptVersions map[string]bool) (*proxy.InterceptorResponse, error) {
+// returning a content type the client cannot parse. Skip-list semantics are
+// handled here so callers do not need to consult the config.
+func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+	// Skip-list entries use the canonical (lowercase, _/. → -) name to match
+	// the same form used for pinned-version lookups.
+	canonical := denormalizePyPIPackageName(packageName)
+	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical)
+	if skip.SkipAll {
+		// Whole package is on the cooldown skip list: pass metadata through
+		// unmodified. The file download still hits analyzePackage, so malware
+		// analysis is preserved.
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
 	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
 
 	originalAccept := ctx.Headers.Get("Accept")
@@ -62,7 +75,9 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 
 		log.Debugf("[%s] Cooldown: parsed %d versions for %s", ctx.RequestID, len(dates), packageName)
 
-		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays, exemptVersions)
+		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, skip, dates, cooldownDays)
+		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, exempt)
+		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays, exempt.all)
 		if stripped > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)

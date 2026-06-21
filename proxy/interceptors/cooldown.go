@@ -6,8 +6,66 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/Masterminds/semver"
+	"github.com/safedep/dry/log"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 )
+
+// cooldownExemptions describes the in-window versions that survive cooldown
+// stripping and why. all is the full exempt set; skipListed is the subset
+// attributable to dependency_cooldown.skip and is the only set that produces an
+// audit event — trusted versions surface as install_trusted_allowed via the
+// proxy fast-allow gate at download time.
+type cooldownExemptions struct {
+	all        map[string]bool
+	skipListed []string
+}
+
+// cooldownExemptVersions classifies the versions that must survive stripping
+// even though they fall within the cooldown window: those trusted via
+// trusted_packages or on the dependency_cooldown.skip list. Only in-window
+// versions are examined, bounding the per-version trusted lookup to recent
+// releases rather than the full (potentially large) version history. A version
+// that is both trusted and skip-listed is attributed to trusted, mirroring the
+// download-path precedence where the fast-allow gate wins.
+func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo, dates map[string]time.Time, cooldownDays int) cooldownExemptions {
+	exempt := cooldownExemptions{all: make(map[string]bool)}
+	for v, publishDate := range dates {
+		if within, _, _ := cooldownIsWithinWindow(publishDate, cooldownDays); !within {
+			continue
+		}
+		switch {
+		case pmgconfig.IsTrustedPackageRef(ecosystem, name, v):
+			exempt.all[v] = true
+		case skip.SkipAll:
+			// A whole-package skip is one waiver, not a per-version exemption:
+			// keep the version but never emit per-version audit events.
+			// HandleMetadataRequest also short-circuits this case upstream.
+			exempt.all[v] = true
+		case skip.ExemptsVersion(v):
+			exempt.all[v] = true
+			exempt.skipListed = append(exempt.skipListed, v)
+		}
+	}
+	return exempt
+}
+
+// auditCooldownSkips emits one dependency_cooldown_skipped audit event per
+// version that the skip list exempted from an active cooldown window. It is
+// called from the metadata modifier, where publish dates are known, so the
+// event only fires for versions a live cooldown would otherwise have stripped.
+func auditCooldownSkips(requestID string, ecosystem packagev1.Ecosystem, name string, exempt cooldownExemptions) {
+	for _, version := range exempt.skipListed {
+		log.Infof("[%s] Cooldown: %s@%s exempt by %s", requestID, name, version, audit.CooldownSkipReason)
+
+		pv := &packagev1.PackageVersion{}
+		pv.SetPackage(&packagev1.Package{})
+		pv.GetPackage().SetName(name)
+		pv.GetPackage().SetEcosystem(ecosystem)
+		pv.SetVersion(version)
+		audit.LogCooldownSkipped(pv)
+	}
+}
 
 // cooldownIsWithinWindow reports whether a version published at publishDate is still
 // within the cooldown window of cooldownDays. Returns withinCooldown, daysSincePublish,

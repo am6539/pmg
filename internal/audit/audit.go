@@ -87,7 +87,7 @@ func LogMalwareBlocked(pv *packagev1.PackageVersion, reason, analysisID, referen
 		AnalysisID:     analysisID,
 		IsMalware:      isMalware,
 		IsVerified:     isVerified,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"reason":        reason,
 			"analysis_id":   analysisID,
 			"reference_url": referenceURL,
@@ -121,7 +121,7 @@ func LogInstallAllowed(pv *packagev1.PackageVersion, packageCount int) {
 		Type:           EventTypeInstallAllowed,
 		Message:        fmt.Sprintf("Installation allowed for %s@%s (%d packages analyzed)", pkgName(pv), pkgVersion(pv), packageCount),
 		PackageVersion: pv,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"packages_analyzed": packageCount,
 		},
 		PackageCount: packageCount,
@@ -163,7 +163,7 @@ func LogInstallStarted(packageManager string, args []string) {
 	logEvent(AuditEvent{
 		Type:    EventTypeInstallStarted,
 		Message: fmt.Sprintf("Starting package installation with %s", packageManager),
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"package_manager": packageManager,
 			"arguments":       args,
 		},
@@ -177,8 +177,8 @@ func LogInstallStarted(packageManager string, args []string) {
 }
 
 // LogProxyHostObserved records an outbound host observed by the proxy that is not a known registry.
-func LogProxyHostObserved(hostname, method, reason string, details map[string]interface{}) {
-	base := map[string]interface{}{
+func LogProxyHostObserved(hostname, method, reason string, details map[string]any) {
+	base := map[string]any{
 		"hostname": hostname,
 		"method":   method,
 		"reason":   reason,
@@ -211,12 +211,30 @@ func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, 
 	}
 }
 
+// CooldownSkipReason is the only source that produces a dependency_cooldown_skipped
+// event; trusted-package exemptions surface as install_trusted_allowed instead.
+const CooldownSkipReason = "dependency_cooldown.skip"
+
+// LogCooldownSkipped records that a specific package version was exempted from
+// the dependency cooldown window by the dependency_cooldown.skip list.
+func LogCooldownSkipped(pv *packagev1.PackageVersion) {
+	logEvent(AuditEvent{
+		Type:           EventTypeCooldownSkipped,
+		Message:        fmt.Sprintf("Cooldown skipped for %s@%s", pkgName(pv), pkgVersion(pv)),
+		PackageVersion: pv,
+		Reason:         CooldownSkipReason,
+		Details: map[string]any{
+			"reason": CooldownSkipReason,
+		},
+	})
+}
+
 // LogSandboxOverride records that runtime sandbox policy overrides were applied.
 func LogSandboxOverride(sandboxProfile string, overrides []map[string]string) {
 	logEvent(AuditEvent{
 		Type:    EventTypeSandboxOverride,
 		Message: fmt.Sprintf("Sandbox runtime overrides applied (%d rules)", len(overrides)),
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"sandbox_profile":           sandboxProfile,
 			"sandbox_runtime_overrides": overrides,
 		},
@@ -234,7 +252,7 @@ func LogError(message string, err error) {
 	}
 
 	if err != nil {
-		event.Details = map[string]interface{}{
+		event.Details = map[string]any{
 			"error": err.Error(),
 		}
 	}
@@ -280,9 +298,9 @@ func LogSessionComplete(outcome Outcome, flowType FlowType) {
 	})
 }
 
-func mergeDetails(base, extra map[string]interface{}) map[string]interface{} {
+func mergeDetails(base, extra map[string]any) map[string]any {
 	if base == nil {
-		base = make(map[string]interface{})
+		base = make(map[string]any)
 	}
 	for k, v := range extra {
 		base[k] = v

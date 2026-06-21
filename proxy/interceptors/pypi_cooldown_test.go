@@ -357,7 +357,7 @@ func TestPyPICooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	ctx.Headers.Set("If-None-Match", `"abc123"`)
 	ctx.Headers.Set("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "")
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/vnd.pypi.simple.v1+json", ctx.Headers.Get("Accept"))
@@ -371,7 +371,7 @@ func TestPyPICooldown_HandleMetadataRequest_ClientWithoutPEP691_SkipsCooldown(t 
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 	ctx.Headers.Set("Accept", "text/html")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "")
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
 	assert.Nil(t, resp.ResponseModifier)
@@ -383,7 +383,7 @@ func TestPyPICooldown_HandleMetadataRequest_NonJSONResponse_FailOpen(t *testing.
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -410,7 +410,7 @@ func TestPyPICooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -448,7 +448,7 @@ func TestPyPICooldown_HandleMetadataRequest_AllVersionsInCooldown_RecordsStats(t
 	ctx := makeTestRequestContext("https://pypi.org/simple/newpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -482,7 +482,7 @@ func TestPyPICooldown_HandleMetadataRequest_NoVersionsInCooldown_BodyUnchanged(t
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -499,7 +499,7 @@ func TestPyPICooldown_HandleMetadataRequest_MalformedJSON_FailOpen(t *testing.T)
 	ctx := makeTestRequestContext("https://pypi.org/simple/badpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -526,7 +526,7 @@ func TestPyPICooldown_HandleMetadataRequest_PinnedVersionInCooldown_RecordsStats
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "2.0.0", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "2.0.0")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -561,7 +561,7 @@ func TestPyPICooldown_HandleMetadataRequest_PinnedVersionNotInCooldown_NoBlock(t
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "1.0.0", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "1.0.0")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -589,7 +589,7 @@ func TestPyPICooldown_HandleMetadataRequest_UnpinnedWithRemainingVersions_NoBloc
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -661,6 +661,49 @@ func TestPyPICooldown_JSONAPIRequest_NotIntercepted(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
 	assert.Equal(t, "application/json", ctx.Headers.Get("Accept"))
+}
+
+func TestPyPICooldown_HandleMetadataRequest_PreservesTrustedVersion(t *testing.T) {
+	// testpkg@2.0.0 is trusted; 2.1.0 is not. Both are fresh (in cooldown).
+	setTrustedPackagesForTest(t, []config.TrustedPackage{{Purl: "pkg:pypi/testpkg@2.0.0"}})
+
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-30 * day), // old — eligible
+		"2.0.0": now.Add(-1 * day),  // fresh, trusted — must be preserved
+		"2.1.0": now.Add(-1 * day),  // fresh, untrusted — must be stripped
+	}
+	body := buildTestPEP691Response(versions)
+
+	handler := newPypiCooldownHandler(NewAnalysisStatsCollector())
+	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
+	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
+
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
+	require.NoError(t, err)
+	require.NotNil(t, resp.ResponseModifier)
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/vnd.pypi.simple.v1+json")
+
+	_, _, retBody, err := resp.ResponseModifier(200, headers, body)
+	require.NoError(t, err)
+
+	var result struct {
+		Files []struct {
+			Filename string `json:"filename"`
+		} `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(retBody, &result))
+
+	filenames := make([]string, 0, len(result.Files))
+	for _, f := range result.Files {
+		filenames = append(filenames, f.Filename)
+	}
+	assert.Contains(t, filenames, "testpkg-2.0.0.tar.gz", "trusted fresh version must be preserved")
+	assert.NotContains(t, filenames, "testpkg-2.1.0.tar.gz", "untrusted fresh version must be stripped")
+	assert.Contains(t, filenames, "testpkg-1.0.0.tar.gz", "old version must be preserved")
 }
 
 func TestPyPICooldown_FileDownloadBypassesCooldown(t *testing.T) {

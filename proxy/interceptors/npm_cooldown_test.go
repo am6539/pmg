@@ -432,7 +432,7 @@ func TestNpmCooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	ctx.Headers.Set("If-None-Match", `"abc123"`)
 	ctx.Headers.Set("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "lodash", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "lodash", 5, "")
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/json", ctx.Headers.Get("Accept"))
@@ -454,7 +454,7 @@ func TestNpmCooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
 	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -489,7 +489,7 @@ func TestNpmCooldown_HandleMetadataRequest_NoVersionsInCooldown(t *testing.T) {
 	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -510,7 +510,7 @@ func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_RecordsStats(t 
 	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/newpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -542,7 +542,7 @@ func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_ReportsOldestVe
 	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/multipkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "multipkg", 100, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "multipkg", 100, "")
 	require.NoError(t, err)
 
 	_, _, _, err = resp.ResponseModifier(200, http.Header{}, body)
@@ -559,7 +559,7 @@ func TestNpmCooldown_HandleMetadataRequest_MalformedJSON_FailOpen(t *testing.T) 
 	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/badpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -581,7 +581,7 @@ func TestNpmCooldown_HandleMetadataRequest_PinnedVersionInCooldown_RecordsStats(
 	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "2.0.0", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "2.0.0")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -612,7 +612,7 @@ func TestNpmCooldown_HandleMetadataRequest_PinnedVersionNotInCooldown_NoBlock(t 
 	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "1.0.0", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "1.0.0")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -636,7 +636,7 @@ func TestNpmCooldown_HandleMetadataRequest_UnpinnedWithRemainingVersions_NoBlock
 	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -676,6 +676,38 @@ func TestNpmCooldown_InterceptorDelegation_CooldownDisabled(t *testing.T) {
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
 	// Accept header should NOT be modified when cooldown is disabled
 	assert.Equal(t, "application/vnd.npm.install-v1+json", ctx.Headers.Get("Accept"))
+}
+
+func TestNpmCooldown_HandleMetadataRequest_PreservesTrustedVersion(t *testing.T) {
+	setTrustedPackagesForTest(t, []config.TrustedPackage{{Purl: "pkg:npm/testpkg@2.0.0"}})
+
+	now := time.Now()
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-30 * 24 * time.Hour), // old — eligible
+		"2.0.0": now.Add(-1 * 24 * time.Hour),  // fresh, trusted — must be preserved
+		"2.1.0": now.Add(-1 * 24 * time.Hour),  // fresh, untrusted — must be stripped
+	}
+	distTags := map[string]string{"latest": "2.1.0"}
+	body := buildTestPackument(versions, distTags)
+
+	collector := NewAnalysisStatsCollector()
+	handler := newNpmCooldownHandler(collector)
+	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
+
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
+	require.NoError(t, err)
+	require.NotNil(t, resp.ResponseModifier)
+
+	_, _, newBody, err := resp.ResponseModifier(200, http.Header{}, body)
+	require.NoError(t, err)
+
+	var meta struct {
+		Versions map[string]json.RawMessage `json:"versions"`
+	}
+	require.NoError(t, json.Unmarshal(newBody, &meta))
+	assert.Contains(t, meta.Versions, "2.0.0", "trusted fresh version must be preserved")
+	assert.NotContains(t, meta.Versions, "2.1.0", "untrusted fresh version must be stripped")
+	assert.Contains(t, meta.Versions, "1.0.0", "old version must be preserved")
 }
 
 func TestNpmCooldown_TarballRequestBypassesCooldown(t *testing.T) {

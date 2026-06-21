@@ -126,20 +126,10 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		// for version resolution. JSON API requests (/pypi/{pkg}/json) are allowed through;
 		// they have a different response structure and pip does not use them for installs.
 		if depCooldownConfig.Enabled && strings.HasPrefix(ctx.URL.Path, "/simple/") {
-			// Match the skip list against the normalized name (lowercase, _/. → -),
-			// the same canonical form used for pinned-version lookups, so a PURL
-			// like pkg:pypi/My_Pkg reliably matches the resolved request name.
-			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName()))
-			if skip.SkipAll {
-				// Whole package is on the cooldown skip list: pass metadata through
-				// unmodified. The tarball download still hits analyzePackage, so
-				// malware analysis is preserved.
-				log.Infof("[%s] Cooldown: package %s is on the skip list (dependency_cooldown.skip); malware analysis still applies", ctx.RequestID, pkgInfo.GetName())
+			if pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName())) {
 				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 			}
-
-			// Version-pinned skip entries (if any) are preserved during stripping.
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()], skip.Versions)
+			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
 		}
 
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
@@ -151,6 +141,14 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		log.Warnf("[%s] Incomplete package info from URL %s: name=%s, version=%s",
 			ctx.RequestID, ctx.URL.Path, pkgInfo.GetName(), pkgInfo.GetVersion())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	// Canonical name is used for identity checks (trusted, cooldown); raw name
+	// is kept for analyzePackage so malware analysis sees the original form.
+	canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
+
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, pkgInfo.GetVersion()); ok {
+		return resp, nil
 	}
 
 	// Get file type for logging if available

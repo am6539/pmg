@@ -7,6 +7,40 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func setGlobalForTest(t *testing.T, cfg *Config) {
+	t.Helper()
+	prev := globalConfig
+	globalConfig = &RuntimeConfig{Config: *cfg}
+	t.Cleanup(func() { globalConfig = prev })
+}
+
+func TestIsTrustedPackageRef(t *testing.T) {
+	cfg := &Config{TrustedPackages: []TrustedPackage{
+		{Purl: "pkg:npm/all-versions"},
+		{Purl: "pkg:npm/pinned@1.0.0"},
+	}}
+	_ = preprocessTrustedPackages(cfg)
+	setGlobalForTest(t, cfg)
+
+	assert.True(t, IsTrustedPackageRef(packagev1.Ecosystem_ECOSYSTEM_NPM, "all-versions", "9.9.9"))
+	assert.True(t, IsTrustedPackageRef(packagev1.Ecosystem_ECOSYSTEM_NPM, "pinned", "1.0.0"))
+	assert.False(t, IsTrustedPackageRef(packagev1.Ecosystem_ECOSYSTEM_NPM, "pinned", "2.0.0"))
+	assert.False(t, IsTrustedPackageRef(packagev1.Ecosystem_ECOSYSTEM_NPM, "other", "1.0.0"))
+}
+
+func TestIsTrustedPackageAllVersions(t *testing.T) {
+	cfg := &Config{TrustedPackages: []TrustedPackage{
+		{Purl: "pkg:npm/all-versions"},
+		{Purl: "pkg:npm/pinned@1.0.0"},
+	}}
+	_ = preprocessTrustedPackages(cfg)
+	setGlobalForTest(t, cfg)
+
+	assert.True(t, IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "all-versions"))
+	assert.False(t, IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pinned"))
+	assert.False(t, IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "absent"))
+}
+
 func TestCooldownSkip(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -117,42 +151,14 @@ func TestCooldownSkipInfo_ExemptsVersion(t *testing.T) {
 	assert.False(t, none.ExemptsVersion("1.0.0"))
 }
 
-// TestCooldownSkipAndTrustedPackagesAreIndependent verifies the cooldown skip
-// list and the top-level trusted_packages do not leak into each other: a
-// cooldown-skipped package is NOT trusted for malware analysis, and a
-// malware-trusted package is NOT cooldown-skipped.
-func TestCooldownSkipAndTrustedPackagesAreIndependent(t *testing.T) {
+func TestCooldownSkipIsSkipListOnly(t *testing.T) {
 	cfg := &Config{
-		TrustedPackages: []TrustedPackage{
-			{Purl: "pkg:npm/malware-trusted", Reason: "waives analysis only"},
-		},
-		DependencyCooldown: DependencyCooldownConfig{
-			Skip: []TrustedPackage{
-				{Purl: "pkg:npm/cooldown-skipped", Reason: "waives cooldown only"},
-			},
-		},
+		TrustedPackages:    []TrustedPackage{{Purl: "pkg:npm/trusted-only"}},
+		DependencyCooldown: DependencyCooldownConfig{Skip: []TrustedPackage{{Purl: "pkg:npm/cooldown-only"}}},
 	}
 	_ = preprocessTrustedPackages(cfg)
+	setGlobalForTest(t, cfg)
 
-	cooldownSkipped := &packagev1.PackageVersion{
-		Package: &packagev1.Package{Name: "cooldown-skipped", Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM},
-		Version: "1.0.0",
-	}
-	malwareTrusted := &packagev1.PackageVersion{
-		Package: &packagev1.Package{Name: "malware-trusted", Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM},
-		Version: "1.0.0",
-	}
-
-	// Cooldown-skipped package is still malware-analyzed (not in trusted_packages).
-	assert.False(t, isTrustedPackageVersion(cfg.TrustedPackages, cooldownSkipped),
-		"cooldown-skipped package must NOT waive malware analysis")
-	assert.True(t, cooldownSkip(cfg.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, "cooldown-skipped").SkipAll,
-		"cooldown-skipped package must skip the cooldown window")
-
-	// Malware-trusted package is still subject to cooldown (not in the skip list).
-	assert.True(t, isTrustedPackageVersion(cfg.TrustedPackages, malwareTrusted),
-		"malware-trusted package must waive malware analysis")
-	skip := cooldownSkip(cfg.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, "malware-trusted")
-	assert.False(t, skip.SkipAll, "malware-trusted package must NOT skip cooldown")
-	assert.Nil(t, skip.Versions)
+	assert.False(t, CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, "trusted-only").SkipAll, "trusted_packages must not leak into CooldownSkip")
+	assert.True(t, CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, "cooldown-only").SkipAll)
 }
