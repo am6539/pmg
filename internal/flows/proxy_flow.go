@@ -417,11 +417,16 @@ func (f *proxyFlow) createAndStartProxyServer(
 
 // malysisHTTPURL derives the /api/malysis URL from the gRPC address.
 // addr is "host:port" (e.g. "myhost.example.com:443" or "localhost:8080").
+// If addr contains a scheme (http:// or https://), it is stripped.
 func malysisHTTPURL(addr string, insecure bool) string {
 	scheme := "https"
 	if insecure {
 		scheme = "http"
 	}
+
+	// Strip scheme if present (e.g. "https://host" -> "host")
+	addr = stripScheme(addr)
+
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return scheme + "://" + addr + "/api/malysis"
@@ -430,6 +435,16 @@ func malysisHTTPURL(addr string, insecure bool) string {
 		return scheme + "://" + host + "/api/malysis"
 	}
 	return scheme + "://" + host + ":" + port + "/api/malysis"
+}
+
+func stripScheme(addr string) string {
+	if len(addr) > 8 && addr[:8] == "https://" {
+		return addr[8:]
+	}
+	if len(addr) > 7 && addr[:7] == "http://" {
+		return addr[7:]
+	}
+	return addr
 }
 
 // resolveAPIKey resolves an API key using the same credential resolver chain as cloud_client.go.
