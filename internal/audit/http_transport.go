@@ -122,11 +122,16 @@ func (c *chainEventTransport) Close() error {
 
 // cloudHTTPSyncURL derives the /api/sync URL from the gRPC address.
 // addr is "host:port" (e.g. "package.thanhvpga.qzz.io:443" or "localhost:8080").
+// If addr contains a scheme (http:// or https://), it is stripped.
 func cloudHTTPSyncURL(addr string, insecure bool) string {
 	scheme := "https"
 	if insecure {
 		scheme = "http"
 	}
+
+	// Strip scheme if present (e.g. "https://host" -> "host")
+	addr = stripScheme(addr)
+
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return scheme + "://" + addr + "/api/sync"
@@ -135,4 +140,14 @@ func cloudHTTPSyncURL(addr string, insecure bool) string {
 		return scheme + "://" + host + "/api/sync"
 	}
 	return scheme + "://" + host + ":" + port + "/api/sync"
+}
+
+func stripScheme(addr string) string {
+	if len(addr) > 8 && addr[:8] == "https://" {
+		return addr[8:]
+	}
+	if len(addr) > 7 && addr[:7] == "http://" {
+		return addr[7:]
+	}
+	return addr
 }
