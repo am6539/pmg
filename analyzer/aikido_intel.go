@@ -265,6 +265,9 @@ func (a *aikidoIntelAnalyzer) writeDiskCache(ecoName string, entries []aikidoEnt
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(a.cfg.CacheDir, 0o755); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
+	}
 	return os.WriteFile(a.diskCachePath(ecoName), data, 0o600)
 }
 
