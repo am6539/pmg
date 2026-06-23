@@ -82,6 +82,17 @@ type ProxyConfig struct {
 	// UpstreamRetries bounds retries of idempotent upstream requests on
 	// transient round-trip failures. Zero disables retries.
 	UpstreamRetries int
+
+	// UpstreamDialContext, when set, replaces the default dialer for all upstream
+	// connections — both MITM'd round-trips and the CONNECT tunnels used for
+	// non-MITM hosts. Tests use it to redirect every hostname to a mock server so
+	// no path reaches the network; production leaves it nil.
+	UpstreamDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+
+	// UpstreamTLSClientConfig, when set, overrides the TLS config used for
+	// upstream connections (e.g. to trust a mock registry's certificate). nil
+	// keeps the production default.
+	UpstreamTLSClientConfig *tls.Config
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -144,8 +155,14 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	// the output is actually wanted.
 	proxy.Verbose = strings.EqualFold(os.Getenv("APP_LOG_LEVEL"), "debug")
 
-	// Configure connection timeout for upstream connections during CONNECT requests
+	// Configure connection timeout for upstream connections during CONNECT requests.
+	// A custom UpstreamDialContext also governs CONNECT tunnels so non-MITM hosts
+	// are dialed through the same override (tests rely on this for hermeticity).
 	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
+		if config.UpstreamDialContext != nil {
+			return config.UpstreamDialContext(context.Background(), network, addr)
+		}
+
 		dialer := &net.Dialer{
 			Timeout: config.ConnectTimeout,
 		}
@@ -192,6 +209,19 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 		Timeout: config.ConnectTimeout,
 	}
 
+	dialContext := dialer.DialContext
+	if config.UpstreamDialContext != nil {
+		dialContext = config.UpstreamDialContext
+	}
+
+	tlsClientConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: false,
+	}
+	if config.UpstreamTLSClientConfig != nil {
+		tlsClientConfig = config.UpstreamTLSClientConfig
+	}
+
 	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
 	// that PMG works in enterprise environments that require a corporate
 	// upstream proxy to reach the internet. Loopback addresses are always
@@ -213,7 +243,7 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 	// connection reuse.
 	return &http.Transport{
 		Proxy:                 proxyWithLoopbackBypass,
-		DialContext:           dialer.DialContext,
+		DialContext:           dialContext,
 		ForceAttemptHTTP2:     true,
 		MaxConnsPerHost:       100,
 		MaxIdleConns:          200,
@@ -221,10 +251,7 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 		IdleConnTimeout:       120 * time.Second,
 		TLSHandshakeTimeout:   config.ConnectTimeout,
 		ResponseHeaderTimeout: config.RequestTimeout,
-		TLSClientConfig: &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: false,
-		},
+		TLSClientConfig:       tlsClientConfig,
 	}
 }
 
