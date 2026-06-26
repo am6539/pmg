@@ -73,6 +73,11 @@ inputs:
     required: false
     default: "false"
 
+  server-mode:
+    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job. Requires a job-end "pmg proxy stop --fail-on-violation" step.
+    required: false
+    default: "false"
+
 runs:
   using: composite
   steps:
@@ -235,6 +240,7 @@ runs:
         IN_VERBOSITY: ${{ inputs.verbosity }}
         IN_DISABLE_TELEMETRY: ${{ inputs.disable-telemetry }}
         IN_SKIP_EVENT_LOGGING: ${{ inputs.skip-event-logging }}
+        IN_SERVER_MODE: ${{ inputs.server-mode }}
         GH_REPOSITORY: ${{ github.repository }}
       run: |
         set -euo pipefail
@@ -258,12 +264,18 @@ runs:
           export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
           export_var PMG_CLOUD_ENABLED "true"
 
-          # PMG's opportunistic background auto-sync is designed for long-lived
-          # workstations. On an ephemeral runner the detached child can be
-          # torn down before it drains the WAL, and the WAL goes with it. Turn
-          # it off and rely on an explicit `pmg cloud sync` at job-end if the
-          # user wants events delivered.
-          export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+          if [ "$IN_SERVER_MODE" = "true" ]; then
+            # In server mode the proxy daemon owns delivery and uses auto_sync
+            # to gate both periodic sync and the shutdown flush.
+            export_var PMG_CLOUD_AUTO_SYNC_ENABLED "true"
+          else
+            # PMG's opportunistic background auto-sync is designed for
+            # long-lived workstations. On an ephemeral runner the detached child
+            # can be torn down before it drains the WAL, and the WAL goes with
+            # it. Turn it off and rely on an explicit `pmg cloud sync` at
+            # job-end if the user wants events delivered.
+            export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+          fi
 
           if [ -n "$IN_ENDPOINT_ID" ]; then
             export_var PMG_CLOUD_ENDPOINT_ID "$IN_ENDPOINT_ID"
@@ -292,13 +304,26 @@ runs:
         export_var PMG_DISABLE_TELEMETRY            "$IN_DISABLE_TELEMETRY"
         export_var PMG_SKIP_EVENT_LOGGING           "$IN_SKIP_EVENT_LOGGING"
 
-    - name: Run pmg setup install
+    - name: Run pmg setup install (shim mode)
+      if: inputs.server-mode != 'true'
       shell: bash
       run: pmg setup install
 
-    - name: Add PMG shims to PATH
+    - name: Add PMG shims to PATH (shim mode)
+      if: inputs.server-mode != 'true'
       shell: bash
       run: echo "$HOME/.pmg/bin" >> "$GITHUB_PATH"
+
+    - name: Start PMG proxy server (server mode)
+      if: inputs.server-mode == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # No cert install needed: `pmg proxy env` exports the CA path via
+        # NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/PIP_CERT, so package managers trust
+        # the proxy without touching the OS trust store.
+        pmg proxy start --daemon
+        pmg proxy env >> "$GITHUB_ENV"
 
     - name: Verify PMG
       shell: bash

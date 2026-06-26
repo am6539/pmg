@@ -209,12 +209,15 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 `pip install`, etc. in the job.
 
 ```yaml
-# Consider pinning third-party Actions to a full commit SHA
-- uses: actions/setup-node@v6
-  with:
-    node-version: 24
 - uses: safedep/pmg@v1
-- run: npm ci
+  with:
+    server-mode: true
+
+- run: npm ci          # intercepted via HTTP_PROXY automatically
+
+- name: Enforce PMG policy
+  if: always()
+  run: pmg proxy stop --fail-on-violation   # stops the daemon, fails the job on a block
 ```
 
 By default you get malware blocking and dependency cooldown. Sandbox isolation
@@ -262,6 +265,7 @@ PMG builds are reproducible and signed.
 - [Dependency Cooldown](docs/dependency-cooldown.md)
 - [Caching](docs/caching.md)
 - [Proxy Mode Architecture](docs/proxy-mode.md)
+- [Persistent Proxy Server](docs/persistent-proxy.md)
 - [Certificate Authority](docs/cert.md)
 - [Sandboxing](docs/sandbox.md)
 

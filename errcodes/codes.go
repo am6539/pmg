@@ -24,6 +24,11 @@ const (
 	CertTrustStore      = "CertTrustStore"
 	UnsupportedPlatform = "UnsupportedPlatform"
 
+	// Proxy error codes. ProxyPolicyViolation is returned when the proxy blocked
+	// one or more packages by policy (malware, dependency cooldown, or a denied
+	// suspicious package) and the run was gated with --fail-on-violation.
+	ProxyPolicyViolation = "ProxyPolicyViolation"
+
 	// Unknown mirrors the default code that dry/usefulerror returns for errors
 	// created without an explicit code, so unset and explicitly-unknown errors
 	// classify identically (e.g. the bug-report hint in ui.ErrorExit).

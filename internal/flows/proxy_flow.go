@@ -2,26 +2,22 @@ package flows
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/safedep/dry/localdb"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/analyzer/malysiscache"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
-	"github.com/safedep/pmg/truststore"
 )
 
 type proxyFlow struct {
@@ -137,31 +133,16 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("failed to create certificate manager: %w", err)
 	}
 
-	// Optional persistent analysis cache. Disposable: any failure degrades to
-	// running uncached, never blocks the install.
-	var malysisCache analyzer.MalysisCache
-	cacheCfg := cfg.Config.AnalysisCache.Malysis
-	if cacheCfg.Enabled && cacheCfg.TTL > 0 {
-		mgr := localdb.New(localdb.Config{
-			Dir:      cfg.LocalDBDir(),
-			FileName: cfg.LocalDBFileName(),
-		})
-		defer func() {
-			if cerr := mgr.Close(); cerr != nil {
-				log.Warnf("failed to close localdb: %v", cerr)
-			}
-		}()
-
-		store, serr := mgr.Store(ctx, malysiscache.Descriptor())
-		if serr != nil {
-			log.Warnf("analysis cache unavailable, continuing without it: %v", serr)
-		} else {
-			malysisCache = malysiscache.New(store, cacheCfg)
+	localDB := localstore.NewManager(cfg)
+	defer func() {
+		if cerr := localDB.Close(); cerr != nil {
+			log.Warnf("failed to close localdb: %v", cerr)
 		}
-	}
+	}()
 
-	// Create analyzer
-	malysisAnalyzer, err := f.createAnalyzer(malysisCache)
+	// Analyzer with an optional persistent cache. Cache failures degrade to
+	// running uncached and never block the install.
+	malysisAnalyzer, err := BuildMalysisAnalyzer(ctx, cfg, localDB)
 	if err != nil {
 		return fmt.Errorf("failed to create analyzer: %w", err)
 	}
@@ -231,7 +212,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		PackageManagerName: f.pm.Name(),
 		DryRun:             cfg.DryRun,
 		Mode:               runner.ExecutionModeAuto,
-		EnvOverrides:       f.setupEnvForProxy(proxyAddr, caCertPath),
+		EnvOverrides:       packagemanager.EnvVarForProxy(proxyAddr, caCertPath),
 		DirectEnvOverrides: ciEnvOverride(),
 		BeforeDirectRun: func() error {
 			log.Debugf("Executing proxy for non interactive TTY")
@@ -329,69 +310,11 @@ func handleExecutionResultError(err error) error {
 	return fmt.Errorf("failed to execute command: %w", err)
 }
 
-// setupCACertificate prefers the persisted CA (created by `pmg setup cert install`)
-// so the proxy signs leaves with the same CA that is in the OS trust store. When no
-// persisted CA exists it falls back to an ephemeral per-run CA, preserving original
-// behavior. The temp file always carries the pure CA merged with the system bundle so
-// env-var trust injection works on every platform.
 func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, error) {
 	dir := config.Get().ConfigDir()
-
-	caCert, persisted := loadPersistedCA(dir)
-	if persisted {
-		log.Debugf("Using persisted CA certificate from %s", dir)
-		warnIfCANotTrusted()
-	} else {
-		log.Debugf("Generating ephemeral CA certificate for proxy MITM")
-		generated, err := certmanager.GenerateCA(certmanager.DefaultCertManagerConfig())
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to generate CA certificate: %w", err)
-		}
-		caCert = generated
-	}
-
-	mergedPEM := certmanager.MergeWithSystemCA(caCert.Certificate)
-
-	tempDir := os.TempDir()
-	caCertPath := filepath.Join(tempDir, fmt.Sprintf("pmg-ca-cert-%d.pem", os.Getpid()))
-	if err := os.WriteFile(caCertPath, mergedPEM, 0o600); err != nil {
-		return nil, "", fmt.Errorf("failed to write CA certificate to %s: %w", caCertPath, err)
-	}
-
-	log.Debugf("CA certificate written to %s", caCertPath)
-	return caCert, caCertPath, nil
-}
-
-// loadPersistedCA returns the on-disk CA when present and not expired.
-func loadPersistedCA(dir string) (*certmanager.Certificate, bool) {
-	caCert, err := certmanager.LoadCA(dir)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			log.Warnf("Failed to load persisted CA, using ephemeral: %v", err)
-		}
-		return nil, false
-	}
-
-	if caCert.IsExpired(time.Hour) {
-		log.Warnf("Persisted CA is expired; using ephemeral. Re-run `pmg setup cert install`")
-		return nil, false
-	}
-
-	return caCert, true
-}
-
-// warnIfCANotTrusted logs a hint when the persisted CA is not in any OS store,
-// which matters for native tools (e.g. Go on macOS/Windows) that ignore the
-// injected env vars. Best-effort; never blocks the run.
-func warnIfCANotTrusted() {
-	user, system, err := truststore.Status(certmanager.CACommonName)
-	if err != nil {
-		log.Debugf("Could not determine CA trust status: %v", err)
-		return
-	}
-	if !user && !system {
-		log.Warnf("Persisted CA is not trusted in the OS store; native tools may reject TLS. Run `pmg setup cert install`.")
-	}
+	outputPath := certmanager.EphemeralProxyCABundlePath()
+	cert, _, err := SetupCACertificate(dir, outputPath)
+	return cert, outputPath, err
 }
 
 // createCertificateManager creates a certificate manager with the given CA certificate
@@ -403,12 +326,6 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 	}
 
 	return certMgr, nil
-}
-
-// createAnalyzer creates the malysis query analyzer
-func (f *proxyFlow) createAnalyzer(cache analyzer.MalysisCache) (analyzer.PackageVersionAnalyzer, error) {
-	log.Debugf("Creating malysis query analyzer")
-	return analyzer.NewMalysisAnalyzer(analyzer.MalysisQueryAnalyzerConfig{Cache: cache})
 }
 
 // createAndStartProxyServer creates and starts the proxy server with the given interceptor
@@ -445,34 +362,4 @@ func ciEnvOverride() []string {
 		return nil
 	}
 	return []string{"CI=true"}
-}
-
-func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
-	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
-
-	// IPv6 loopback uses the bare ::1: the bracketed [::1] is URL syntax that
-	// crashes Python's urllib/httpx (#339). Trade-off: Node's NODE_USE_ENV_PROXY
-	// (undici) only bypasses the bracketed form, so a literal http://[::1] from
-	// Node still gets proxied. localhost/127.0.0.1 cover the common cases; the
-	// IPv6 literal is a rare edge we accept since NO_PROXY can't be set per-client.
-	noProxyList := "localhost,127.0.0.1,::1"
-
-	return []string{
-		"NODE_USE_ENV_PROXY=1",
-		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
-		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
-		fmt.Sprintf("NO_PROXY=%s", noProxyList),
-		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),
-		fmt.Sprintf("YARN_HTTP_PROXY=%s", proxyURL),
-		fmt.Sprintf("YARN_HTTPS_PROXY=%s", proxyURL),
-		fmt.Sprintf("YARN_HTTPS_CA_FILE_PATH=%s", caCertPath),
-		fmt.Sprintf("http_proxy=%s", proxyURL),
-		fmt.Sprintf("https_proxy=%s", proxyURL),
-		fmt.Sprintf("no_proxy=%s", noProxyList),
-		fmt.Sprintf("SSL_CERT_FILE=%s", caCertPath),
-		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", caCertPath),
-		fmt.Sprintf("PIP_CERT=%s", caCertPath),
-		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
-		"PIP_RETRIES=0",
-	}
 }

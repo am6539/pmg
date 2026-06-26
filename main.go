@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/pmg/cmd/executors"
 	landlockCmd "github.com/safedep/pmg/cmd/landlock"
 	"github.com/safedep/pmg/cmd/npm"
+	proxyCmd "github.com/safedep/pmg/cmd/proxy"
 	"github.com/safedep/pmg/cmd/pypi"
 	sandboxCmd "github.com/safedep/pmg/cmd/sandbox"
 	"github.com/safedep/pmg/cmd/setup"
@@ -108,6 +109,17 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
+			// The proxy daemon delivers events itself (periodic sync + shutdown
+			// flush), so suppress the detached background auto-sync for proxy
+			// commands. It would otherwise spawn a redundant child that contends
+			// for the sync lock and, from `pmg proxy stop`, routes through the
+			// now-stopped proxy. We suppress the spawn directly rather than
+			// flipping AutoSync.Enabled, because the daemon's periodic sync
+			// honors that flag.
+			if isProxyCommand(cmd) {
+				audit.SuppressBackgroundSync()
+			}
+
 			config.FinalizeDependencyCooldownOverride()
 
 			// Parse and validate --sandbox-allow flags after all flags are resolved
@@ -148,6 +160,7 @@ func main() {
 	cmd.AddCommand(pypi.NewUvCommand())
 	cmd.AddCommand(pypi.NewPoetryCommand())
 	cmd.AddCommand(executors.NewPipxCommand())
+	cmd.AddCommand(proxyCmd.NewProxyCommand())
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
@@ -213,4 +226,14 @@ func logDebugContext() {
 	log.Debugf("Cloud sync enabled: %t, telemetry disabled: %t", cfg.Config.Cloud.Enabled, cfg.Config.DisableTelemetry)
 	log.Debugf("Dry run: %t, insecure installation: %t, trusted packages: %d",
 		cfg.DryRun, cfg.InsecureInstallation, len(cfg.Config.TrustedPackages))
+}
+
+// isProxyCommand reports whether cmd is `pmg proxy` or one of its subcommands.
+func isProxyCommand(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "proxy" {
+			return true
+		}
+	}
+	return false
 }
