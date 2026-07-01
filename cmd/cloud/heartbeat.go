@@ -27,20 +27,22 @@ type HeartbeatResponse struct {
 	Policy          *policy.Policy `json:"policy,omitempty"`
 }
 
-// getLocalIP detects the primary non-loopback IPv4 address.
+// getLocalIP detects the IPv4 address of the network interface the OS would
+// use to reach the internet, by asking the routing table via a UDP "connect"
+// (no packets are actually sent). This avoids picking a link-local (169.254.0.0/16)
+// or virtual adapter address, which InterfaceAddrs() enumeration order can't rule out.
 func getLocalIP() string {
-	addrs, err := net.InterfaceAddrs()
+	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		return ""
 	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
-			}
-		}
+	defer conn.Close()
+
+	udpAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || udpAddr.IP.To4() == nil {
+		return ""
 	}
-	return ""
+	return udpAddr.IP.String()
 }
 
 func newHeartbeatCommand() *cobra.Command {
