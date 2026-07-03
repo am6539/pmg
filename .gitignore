@@ -37,3 +37,6 @@ test/
 
 # Superpowers plans (internal planning docs)
 docs/superpowers/
+
+# Local git worktrees for isolated feature work
+.worktrees/
