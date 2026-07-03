@@ -294,3 +294,52 @@ func mergeDetails(base, extra map[string]interface{}) map[string]interface{} {
 	}
 	return base
 }
+
+// EcosystemScanSummary carries aggregate counters for a completed ecosystem scan.
+type EcosystemScanSummary struct {
+	TotalPathsScanned  int
+	UniquePackages     int
+	FlaggedCount       int
+	SkippedDirs        int
+	SkippedCloudChecks int
+	Duration           time.Duration
+}
+
+// LogEcosystemScanStarted records that a machine-wide ecosystem scan began.
+func LogEcosystemScanStarted() {
+	logEvent(AuditEvent{
+		Type:    EventTypeEcosystemScanStarted,
+		Message: "Ecosystem scan started",
+	})
+}
+
+// LogEcosystemFinding records a single malicious package found during an ecosystem scan.
+func LogEcosystemFinding(pv *packagev1.PackageVersion, paths []string, verdict, referenceURL, removeHint string) {
+	logEvent(AuditEvent{
+		Type:           EventTypeEcosystemFinding,
+		Message:        fmt.Sprintf("Ecosystem scan found malicious package: %s@%s", pkgName(pv), pkgVersion(pv)),
+		PackageVersion: pv,
+		Details: map[string]interface{}{
+			"paths":         paths,
+			"verdict":       verdict,
+			"reference_url": referenceURL,
+			"remove_hint":   removeHint,
+		},
+	})
+}
+
+// LogEcosystemScanCompleted records the end of a machine-wide ecosystem scan.
+func LogEcosystemScanCompleted(summary EcosystemScanSummary) {
+	logEvent(AuditEvent{
+		Type:    EventTypeEcosystemScanCompleted,
+		Message: fmt.Sprintf("Ecosystem scan completed: %d flagged out of %d unique packages", summary.FlaggedCount, summary.UniquePackages),
+		Details: map[string]interface{}{
+			"total_paths_scanned":  summary.TotalPathsScanned,
+			"unique_packages":      summary.UniquePackages,
+			"flagged_count":        summary.FlaggedCount,
+			"skipped_dirs":         summary.SkippedDirs,
+			"skipped_cloud_checks": summary.SkippedCloudChecks,
+			"duration_seconds":     summary.Duration.Seconds(),
+		},
+	})
+}

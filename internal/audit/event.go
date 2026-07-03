@@ -59,6 +59,17 @@ const (
 	EventTypeSandboxOverride       EventType = "sandbox_override"
 	EventTypeError                 EventType = "error"
 	EventTypeSessionComplete       EventType = "session_complete"
+
+	// EventTypeEcosystemScanStarted, EventTypeEcosystemFinding, and
+	// EventTypeEcosystemScanCompleted are local-eventlog-only: they are
+	// intentionally NOT added to internal/audit/cloud_translate.go, since
+	// there is no matching controltowerv1.PmgEvent variant for them (that
+	// schema is fixed and defined outside this repo). Ecosystem scan results
+	// reach pmg-cloud via a dedicated HTTP endpoint instead — see
+	// docs/superpowers/specs/2026-07-02-ecosystem-scan-design.md.
+	EventTypeEcosystemScanStarted   EventType = "ecosystem_scan_started"
+	EventTypeEcosystemFinding       EventType = "ecosystem_finding"
+	EventTypeEcosystemScanCompleted EventType = "ecosystem_scan_completed"
 )
 
 // AuditEvent is the canonical audit event for PMG. It carries all data any
