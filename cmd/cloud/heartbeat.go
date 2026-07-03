@@ -25,6 +25,7 @@ type HeartbeatResponse struct {
 	DownloadURL     string         `json:"download_url,omitempty"`
 	SHA256          string         `json:"sha256,omitempty"`
 	Policy          *policy.Policy `json:"policy,omitempty"`
+	ScanRequested   bool           `json:"scan_requested,omitempty"`
 }
 
 // getLocalIP detects the IPv4 address of the network interface the OS would
@@ -67,10 +68,12 @@ func runHeartbeat(cmd *cobra.Command, args []string) error {
 		log.Infof("Update available: %s — self-updating now…", resp.Version)
 		SelfUpdateSilent(cmd.Context(), cfg, resp)
 	}
+	runEcosystemScanIfRequested(cmd.Context(), cfg, resp.ScanRequested)
 	return nil
 }
 
-// SendHeartbeatSilent sends a heartbeat and triggers self-update if signalled.
+// SendHeartbeatSilent sends a heartbeat and triggers self-update or an
+// ecosystem scan if signalled.
 func SendHeartbeatSilent(ctx context.Context, cfg *config.RuntimeConfig) {
 	resp, err := sendHeartbeat(ctx, cfg)
 	if err != nil {
@@ -80,6 +83,7 @@ func SendHeartbeatSilent(ctx context.Context, cfg *config.RuntimeConfig) {
 	if resp.UpdateAvailable {
 		SelfUpdateSilent(ctx, cfg, resp)
 	}
+	runEcosystemScanIfRequested(ctx, cfg, resp.ScanRequested)
 }
 
 func sendHeartbeat(ctx context.Context, cfg *config.RuntimeConfig) (HeartbeatResponse, error) {
