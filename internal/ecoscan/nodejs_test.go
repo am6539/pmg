@@ -1,6 +1,7 @@
 package ecoscan
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,4 +69,24 @@ func TestScanNodeModulesSkipsDirsWithoutPackageJSON(t *testing.T) {
 	found, err := ScanNodeModules(nodeModules)
 	require.NoError(t, err)
 	assert.Empty(t, found)
+}
+
+func TestScanNodeModulesCapsRecursionDepth(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "node_modules")
+
+	// Nest well past maxNodeModulesDepth to prove the cap actually stops
+	// recursion, guarding against a crafted node_modules symlink cycle
+	// driving unbounded recursion.
+	const totalLevels = maxNodeModulesDepth + 10
+	cur := dir
+	for i := 0; i < totalLevels; i++ {
+		name := fmt.Sprintf("pkg%d", i)
+		writePackageJSON(t, filepath.Join(cur, name), name, "1.0.0")
+		cur = filepath.Join(cur, name, "node_modules")
+	}
+
+	found, err := ScanNodeModules(dir)
+	require.NoError(t, err)
+	assert.Len(t, found, maxNodeModulesDepth+1)
 }
