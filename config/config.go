@@ -251,6 +251,12 @@ func (r *RuntimeConfig) CloudSyncLockPath() string {
 	return filepath.Join(r.configDir, "cloud-sync.lock")
 }
 
+// EcoScanLockPath returns the path to the cross-process lock file that
+// prevents concurrent ecosystem scans from overlapping.
+func (r *RuntimeConfig) EcoScanLockPath() string {
+	return filepath.Join(r.configDir, "ecoscan.lock")
+}
+
 // CloudSyncLastRunPath returns the path to the timestamp file recording the
 // last sync attempt (success or failure) in Unix epoch seconds.
 func (r *RuntimeConfig) CloudSyncLastRunPath() string {
