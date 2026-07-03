@@ -120,10 +120,10 @@ func toFinding(pkg UniquePackage, res *analyzer.PackageVersionAnalysisResult) Fi
 }
 
 func removeHint(pkg UniquePackage) string {
-	switch pkg.Ecosystem {
-	case packagev1.Ecosystem_ECOSYSTEM_NPM:
+	switch EcosystemName(pkg.Ecosystem) {
+	case "npm":
 		return fmt.Sprintf("npm uninstall %s", pkg.Name)
-	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
+	case "pypi":
 		return fmt.Sprintf("pip uninstall %s", pkg.Name)
 	default:
 		return ""
