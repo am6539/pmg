@@ -15,6 +15,15 @@ import (
 	"github.com/safedep/pmg/internal/ecoscan"
 )
 
+// scanPackagePayload is the wire shape of a single installed package (clean or flagged)
+// sent to POST /api/scan-report.
+type scanPackagePayload struct {
+	Ecosystem string   `json:"ecosystem"`
+	Name      string   `json:"name"`
+	Version   string   `json:"version"`
+	Paths     []string `json:"paths"`
+}
+
 // scanFindingPayload is the wire shape of a single ecosystem scan finding
 // sent to POST /api/scan-report.
 type scanFindingPayload struct {
@@ -42,6 +51,7 @@ type scanSummaryPayload struct {
 type scanReportPayload struct {
 	Status   string               `json:"status"`
 	Findings []scanFindingPayload `json:"findings,omitempty"`
+	Packages []scanPackagePayload `json:"packages,omitempty"`
 	Summary  *scanSummaryPayload  `json:"summary,omitempty"`
 }
 
@@ -61,9 +71,28 @@ func toScanReportPayload(status string, report ecoscan.Report) scanReportPayload
 		})
 	}
 
+	flagged := make(map[string]struct{}, len(report.Findings))
+	for _, f := range report.Findings {
+		flagged[ecoscan.EcosystemName(f.Package.Ecosystem)+"/"+f.Package.Name+"/"+f.Package.Version] = struct{}{}
+	}
+	packages := make([]scanPackagePayload, 0, len(report.Packages))
+	for _, p := range report.Packages {
+		key := ecoscan.EcosystemName(p.Ecosystem) + "/" + p.Name + "/" + p.Version
+		if _, isFlagged := flagged[key]; isFlagged {
+			continue
+		}
+		packages = append(packages, scanPackagePayload{
+			Ecosystem: ecoscan.EcosystemName(p.Ecosystem),
+			Name:      p.Name,
+			Version:   p.Version,
+			Paths:     p.Paths,
+		})
+	}
+
 	return scanReportPayload{
 		Status:   status,
 		Findings: findings,
+		Packages: packages,
 		Summary: &scanSummaryPayload{
 			TotalPathsScanned:  report.Summary.TotalPathsScanned,
 			UniquePackages:     report.Summary.UniquePackages,

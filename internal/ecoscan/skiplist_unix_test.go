@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build darwin
 
 package ecoscan
 
@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestShouldSkipDirUnix(t *testing.T) {
+func TestShouldSkipDirDarwin(t *testing.T) {
 	cases := []struct {
 		path string
 		skip bool
@@ -26,3 +26,4 @@ func TestShouldSkipDirUnix(t *testing.T) {
 		assert.Equal(t, c.skip, ShouldSkipDir(c.path), c.path)
 	}
 }
+

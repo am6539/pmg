@@ -13,6 +13,7 @@ import (
 // Report is the result of a completed ecosystem scan, ready to be posted to pmg-cloud.
 type Report struct {
 	Findings []Finding
+	Packages []UniquePackage // all unique packages discovered, including clean ones
 	Summary  audit.EcosystemScanSummary
 }
 
@@ -45,5 +46,5 @@ func Run(ctx context.Context, roots []string, aikido, cloudAnalyzer analyzer.Pac
 	log.Infof("ecosystem scan complete: %d unique packages, %d flagged, %d dirs skipped, %d cloud checks skipped",
 		summary.UniquePackages, summary.FlaggedCount, summary.SkippedDirs, summary.SkippedCloudChecks)
 
-	return Report{Findings: findings, Summary: summary}, nil
+	return Report{Findings: findings, Packages: unique, Summary: summary}, nil
 }
