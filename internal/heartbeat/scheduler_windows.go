@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 )
 
 // schtasksScheduler manages a Windows Task Scheduler task that runs the
@@ -22,16 +23,27 @@ func newScheduler() Scheduler { return &schtasksScheduler{} }
 const schtaskName = "PMG Heartbeat"
 
 // taskXMLTemplate is a Task Scheduler XML definition that runs pmg directly
-// without any wrapper binary (no conhost, no VBScript). The Hidden=true flag
-// tells the Task Scheduler service itself to suppress the console window at the
-// kernel level before the process starts — no window is ever created, so there
-// is nothing for AV/EDR to flag as a LOLBin pattern.
+// without any wrapper binary (no conhost, no VBScript).
+//
+// LogonType=S4U ("Service For User") runs the task with the user's token but
+// without loading the user's interactive desktop. Because there is no desktop
+// for conhost to render into, the console window is never shown — this is what
+// eliminates the CMD flash every 15 minutes. File I/O under %USERPROFILE% and
+// outbound network still work because those resolve from the token's SID, not
+// from the desktop session.
 //
 // Key settings:
-//   - Hidden: true          — no console window, handled by svchost/taskeng
+//   - LogonType: S4U        — no desktop → no console window on screen
+//   - Hidden: true          — also hides the task engine UI, defense-in-depth
 //   - RunLevel: HighestAvailable — elevates if the installing user is admin
 //   - ExecutionTimeLimit: PT2M — kill if heartbeat hangs for 2 minutes
 //   - DisallowStartIfOnBatteries/StopIfGoingOnBatteries: false — run on laptops
+//
+// StartBoundary is set to install time (not a fixed epoch). A StartBoundary far
+// in the past leaves the task "Ready" with a computed Next Run Time that never
+// actually fires (Last Result stays 0x41303 SCHED_S_TASK_HAS_NOT_RUN), so the
+// repetition never begins. Anchoring the trigger to the current time makes the
+// scheduler arm the repetition normally.
 var taskXMLTemplate = template.Must(template.New("task").Parse(`<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -43,13 +55,13 @@ var taskXMLTemplate = template.Must(template.New("task").Parse(`<?xml version="1
         <Interval>PT{{.IntervalMinutes}}M</Interval>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
-      <StartBoundary>2000-01-01T00:00:00</StartBoundary>
+      <StartBoundary>{{.StartBoundary}}</StartBoundary>
       <Enabled>true</Enabled>
     </TimeTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">
-      <LogonType>InteractiveToken</LogonType>
+      <LogonType>S4U</LogonType>
       <RunLevel>HighestAvailable</RunLevel>
     </Principal>
   </Principals>
@@ -80,9 +92,11 @@ func (s *schtasksScheduler) Install(pmgPath string) error {
 	if err := taskXMLTemplate.Execute(tmp, struct {
 		PMGPath         string
 		IntervalMinutes int
+		StartBoundary   string
 	}{
 		PMGPath:         filepath.Clean(pmgPath),
 		IntervalMinutes: intervalMinutes,
+		StartBoundary:   time.Now().Format("2006-01-02T15:04:05"),
 	}); err != nil {
 		tmp.Close()
 		return fmt.Errorf("render task xml: %w", err)
