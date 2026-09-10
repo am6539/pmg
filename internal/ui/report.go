@@ -141,6 +141,20 @@ func reportSilent(data *ReportData) {
 	// Silent mode: no report output
 }
 
+// splitBlockedByMalware separates blocked packages into real malware detections
+// and non-malware blocks (e.g. organization policy), based on the IsMalware flag
+// set by the analyzer that produced each result.
+func splitBlockedByMalware(blocked []*analyzer.PackageVersionAnalysisResult) (malware, policy []*analyzer.PackageVersionAnalysisResult) {
+	for _, pkg := range blocked {
+		if pkg.IsMalware {
+			malware = append(malware, pkg)
+		} else {
+			policy = append(policy, pkg)
+		}
+	}
+	return malware, policy
+}
+
 // reportNormal shows minimal, assuring output
 func reportNormal(data *ReportData) {
 	if data.Outcome == OutcomeDryRun {
@@ -176,10 +190,19 @@ func reportNormal(data *ReportData) {
 
 	switch data.Outcome {
 	case OutcomeBlocked:
-		if len(data.BlockedPackages) > 0 {
+		malwareBlocked, policyBlocked := splitBlockedByMalware(data.BlockedPackages)
+
+		if len(malwareBlocked) > 0 {
 			fmt.Println()
 			fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
-			printMaliciousPackagesList(data.BlockedPackages)
+			printMaliciousPackagesList(malwareBlocked)
+			fmt.Println()
+		}
+
+		if len(policyBlocked) > 0 {
+			fmt.Println()
+			fmt.Printf("%s %s\n", Colors.Yellow("⊘"), Colors.Yellow("Blocked by organization policy"))
+			printMaliciousPackagesList(policyBlocked)
 			fmt.Println()
 		}
 
@@ -193,10 +216,10 @@ func reportNormal(data *ReportData) {
 			fmt.Println()
 		}
 
-		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.CooldownBlockedPackages) > 0
-		if onlyCooldown {
+		onlyNonMalware := len(malwareBlocked) == 0 && (len(policyBlocked) > 0 || len(data.CooldownBlockedPackages) > 0)
+		if onlyNonMalware {
 			icon = Colors.Yellow("⊘")
-			message = fmt.Sprintf("PMG: %s analyzed, %s blocked by cooldown",
+			message = fmt.Sprintf("PMG: %s analyzed, %s blocked",
 				pluralizePackages(data.TotalAnalyzed), pluralizePackages(data.BlockedCount))
 		} else {
 			icon = Colors.Red("✗")
@@ -271,10 +294,20 @@ func reportVerbose(data *ReportData) {
 	}
 
 	// Show blocked/confirmed package details in verbose mode
-	if len(data.BlockedPackages) > 0 {
+	malwareBlocked, policyBlocked := splitBlockedByMalware(data.BlockedPackages)
+
+	if len(malwareBlocked) > 0 {
 		fmt.Println()
-		fmt.Println(Colors.Red("  Blocked packages:"))
-		for _, pkg := range data.BlockedPackages {
+		fmt.Println(Colors.Red("  Blocked packages (malware):"))
+		for _, pkg := range malwareBlocked {
+			printPackageDetail(pkg)
+		}
+	}
+
+	if len(policyBlocked) > 0 {
+		fmt.Println()
+		fmt.Println(Colors.Yellow("  Blocked packages (organization policy):"))
+		for _, pkg := range policyBlocked {
 			printPackageDetail(pkg)
 		}
 	}
