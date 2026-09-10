@@ -11,6 +11,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/policy"
 	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -84,6 +85,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 		}
 	}
 
+	policy.RefreshFromCloud(cfg.Config.AikidoIntel.BaseURL, cfg.Config.Cloud.APIKey, cfg.PolicyCachePath())
 	analyzers = append(analyzers, analyzer.NewPolicyAnalyzer(cfg.PolicyCachePath()))
 
 	interaction := guard.PackageManagerGuardInteraction{
