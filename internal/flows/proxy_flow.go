@@ -116,6 +116,12 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return nil
 	}
 
+	// Clear the package manager's local cache so a previously downloaded
+	// tarball/wheel cannot be served from disk, bypassing proxy analysis.
+	if !cfg.InsecureInstallation && (parsedCmd.IsInstallationCommand() || parsedCmd.MayDownloadPackages()) {
+		clearPackageManagerCache(ctx, f.pm.Name())
+	}
+
 	// Setup CA certificate for MITM
 	caCert, caCertPath, err := f.setupCACertificate()
 	if err != nil {
