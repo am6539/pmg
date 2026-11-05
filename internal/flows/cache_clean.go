@@ -2,11 +2,13 @@ package flows
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/shim"
 )
 
 // packageManagerCacheCleanArgs maps a package manager's CommandName to the
@@ -32,10 +34,19 @@ func clearPackageManagerCache(ctx context.Context, pmName string) {
 		return
 	}
 
+	// Resolve past the pmg shim: invoking it would re-enter pmg, which would run
+	// this cache clean again and recurse without bound.
+	realBinary, err := shim.ResolveRealBinary(pmName)
+	if err != nil {
+		log.Warnf("failed to clear %s cache before install (continuing anyway): %v", pmName, err)
+		return
+	}
+
 	cleanCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(cleanCtx, pmName, args...)
+	cmd := exec.CommandContext(cleanCtx, realBinary, args...)
+	cmd.Env = shim.FilterPMGFromEnv(os.Environ())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Warnf("failed to clear %s cache before install (continuing anyway): %v: %s", pmName, err, strings.TrimSpace(string(out)))
 	}

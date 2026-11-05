@@ -72,6 +72,32 @@ func TestClearPackageManagerCache_PassesExpectedArgs(t *testing.T) {
 	assert.Equal(t, "cache clean --force", strings.TrimSpace(string(out)))
 }
 
+// A pmg shim earlier on PATH must not be invoked, otherwise the cache clean
+// re-enters pmg, which runs the cache clean again, recursing without bound.
+func TestClearPackageManagerCache_BypassesPMGShim(t *testing.T) {
+	for pm, args := range packageManagerCacheCleanArgs {
+		t.Run(pm, func(t *testing.T) {
+			shimDir := filepath.Join(t.TempDir(), ".pmg", "bin")
+			require.NoError(t, os.MkdirAll(shimDir, 0o755))
+			realDir := t.TempDir()
+			shimLog := filepath.Join(shimDir, "shim.log")
+			realLog := filepath.Join(realDir, "real.log")
+
+			writeFakeExecutable(t, shimDir, pm, shimLog, 0)
+			writeFakeExecutable(t, realDir, pm, realLog, 0)
+			withFakePATH(t, shimDir+string(os.PathListSeparator)+realDir)
+
+			clearPackageManagerCache(context.Background(), pm)
+
+			assert.NoFileExists(t, shimLog, "pmg shim must not be invoked")
+
+			out, err := os.ReadFile(realLog)
+			require.NoError(t, err)
+			assert.Equal(t, strings.Join(args, " "), strings.TrimSpace(string(out)))
+		})
+	}
+}
+
 func TestClearPackageManagerCache_UnknownPackageManager_NoOp(t *testing.T) {
 	dir := t.TempDir()
 	withFakePATH(t, dir)
